@@ -25,6 +25,9 @@ export function fixtureRecordToTicket(
     status: 'inbox',
     language: record.language,
     triage: null,
+    redactedSummary: null,
+    redactionCount: 0,
+    privacyMode: false,
     fixture: {
       fixtureVersion,
       category: record.category,

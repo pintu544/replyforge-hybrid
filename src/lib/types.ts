@@ -70,6 +70,99 @@ export interface Ticket {
   language: string;
   triage: TriageResult | null;
   fixture: FixtureGold | null;
+  /** Redacted summary produced on-device (Slice 2); null until redaction runs. */
+  redactedSummary: string | null;
+  /** Number of distinct personal-data items redacted from this ticket. */
+  redactionCount: number;
+  /** Whether the last AI task on this ticket ran under Privacy Mode. */
+  privacyMode: boolean;
+}
+
+/** Personal-data pattern types the deterministic checks cover (Slice 2). */
+export type PersonalDataType =
+  | 'email'
+  | 'phone'
+  | 'order-id'
+  | 'payment-reference'
+  | 'postal-address'
+  | 'name';
+
+/**
+ * One distinct personal-data item found by the deterministic checks.
+ * Only the masked value is kept — the raw value is never duplicated into
+ * an entity, a log, or a route event (SPEC NFR-3, DESIGN.md data model).
+ */
+export interface PersonalDataEntity {
+  type: PersonalDataType;
+  maskedValue: string;
+  /** Occurrences of this distinct value in the ticket (subject + body). */
+  count: number;
+}
+
+export const REDACTED_ARTEFACT_BRAND: unique symbol = Symbol('RedactedArtefact');
+
+/**
+ * The redacted artefact: the ONLY bridge from a raw ticket to a cloud
+ * payload (DESIGN.md). It can be produced solely by
+ * `produceRedactedArtefact` in services/redaction.ts — the brand makes it
+ * a compile-time error to hand the payload builder anything else, and the
+ * builder re-checks the brand at runtime.
+ */
+export interface RedactedArtefact {
+  readonly [REDACTED_ARTEFACT_BRAND]: true;
+  sourceTicketId: string;
+  redactedSubject: string;
+  redactedBody: string;
+  redactedSummary: string;
+  entities: PersonalDataEntity[];
+  /** Distinct personal-data items redacted (sum of distinct values per type). */
+  redactionCount: number;
+}
+
+/**
+ * The complete cloud escalation payload contract (DESIGN.md). A raw-body
+ * field does not exist on this type by design.
+ */
+export interface RedactedEscalation {
+  redactedSummary: string;
+  category: Category;
+  urgency: Urgency;
+  sentiment: Sentiment;
+  /** Null in Slice 2 — the routing engine assigns triggers in Slice 3. */
+  escalationTrigger: string | null;
+  issueCount: number;
+  bodyCharacterCount: number;
+  redactionCount: number;
+}
+
+export type PayloadGateStatus = 'minimised' | 'held-for-review' | 'blocked';
+
+/** Outcome of the cloud-payload safety gate (SPEC FR-7, TASKS T-2.3). */
+export interface PayloadGate {
+  status: PayloadGateStatus;
+  /** Labelled pattern types that survived into the payload (blocked only). */
+  survivingTypes: PersonalDataType[];
+  /** Human-readable explanation for the operator. */
+  note: string;
+}
+
+export type DraftState = 'draft' | 'edited' | 'sent-simulated';
+
+/**
+ * A reply draft (DESIGN.md). For a manually written draft there was no AI
+ * task, so requestedMode/actualSource/latencyMs are null — the record must
+ * not invent a route for work the model never did.
+ */
+export interface Draft {
+  id: string;
+  ticketId: string;
+  text: string;
+  requestedMode: RequestedMode | null;
+  actualSource: ActualSource | null;
+  latencyMs: number | null;
+  escalationReason: string | null;
+  state: DraftState;
+  updatedAt: string;
 }
 
 export type TaskType = 'triage' | 'redaction' | 'simple-draft' | 'escalation-draft' | 'evaluation';

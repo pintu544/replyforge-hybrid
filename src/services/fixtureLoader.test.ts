@@ -54,6 +54,9 @@ describe('fixture loader (T-1.4)', () => {
       language: 'en',
       triage: null,
       fixture: null,
+      redactedSummary: null,
+      redactionCount: 0,
+      privacyMode: false,
     });
 
     const first = await loadFixture(repo, UID, file);

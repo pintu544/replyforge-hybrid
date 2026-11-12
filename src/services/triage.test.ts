@@ -16,6 +16,9 @@ const ticket: Ticket = {
   language: 'en',
   triage: null,
   fixture: null,
+  redactedSummary: null,
+  redactionCount: 0,
+  privacyMode: false,
 };
 
 const GOOD_JSON = JSON.stringify({
