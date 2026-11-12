@@ -77,11 +77,13 @@
       Done means: an edited draft can be marked “Send (simulated)” and the ticket becomes sent-simulated with no external request to a mail or messaging service; with the network disabled and a device route available, triage and a simple draft complete and the send remains visibly queued; with no route available, the ticket is preserved as queued or failed with a next action.
       Evidence (12 Nov 2026): sendSimulated performs only the two Firestore-partition writes (draft + ticket) — no external request exists in the path; tests cover sent, queued (save never settles offline → visibly queued, ticket preserved) and failed (next action shown); the workspace shows sent/queued/failed states and reloads on reconnect.
       Unblocks: T-2.8.
-- [ ] **T-2.8 — Adversarial QA for Slice 2**
+- [x] **T-2.8 — Adversarial QA for Slice 2**
       Done means: a fresh QA agent reports critical, warning, and informational findings after attacking the privacy boundary with fixture and hand-written edge cases: unusual personal-data formats, a deliberately surviving pattern, Privacy Mode with no device route, offline use, repeated sends, and attempts to reach a cloud payload without a redacted artefact. Every critical is fixed and re-tested.
+      Evidence (13 Nov 2026): spec/QA-SLICE-2.md — 1 Critical (UI copy over-claim) + 2 Warnings (detector separator gaps; 4 app state-integrity defects) all fixed (6f8b24f, 2a8abdd, 53ab966) and re-tested; 72/72 tests; live re-verification of all three fixes passed (LIVE-VERIFICATION.md).
       Unblocks: T-2.9.
-- [ ] **T-2.9 — Pintu confirmation gate for Slice 2**
+- [x] **T-2.9 — Pintu confirmation gate for Slice 2**
       Done means: Pintu reviews the redaction comparison, payload preview, Privacy Mode refusal, and simulated send using supplied steps and confirms the slice, or corrections are completed first.
+      Confirmed by Pintu 13 Nov 2026 (awaiting-sync state, distinct-value counting, held-for-review rule accepted as built); QA (T-2.8) ran after confirmation at his direction.
       Unblocks: Slice 3.
 
 ## Slice 3 — Cloud escalation, evaluation, and the scorecard
