@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { RouteEvent, Ticket } from '../lib/types';
-import { FailingAdapter, StaticAdapter } from './inference';
+import { CountingAdapter, FailingAdapter, StaticAdapter } from './inference';
 import { MemoryTicketRepository } from './repository';
 import { produceRedactedArtefact } from './redaction';
 import { RouteEventWriter, writerForRepository } from './routeEvents';
@@ -161,6 +161,36 @@ describe('simple draft (T-2.5)', () => {
     expect(outcome.status).toBe('failed');
     expect(attempts).toHaveLength(2);
     expect(attempts[1].outcome).toBe('failed');
+  });
+
+  it('blocks generation before any model call when a labelled pattern survives in the artefact (T-2.8)', async () => {
+    // A stale or hand-built artefact whose redacted body still carries a
+    // detectable pattern must never reach a prompt: runDraft re-scans the
+    // artefact and fails visibly instead of generating.
+    const tampered = {
+      ...artefact,
+      redactedBody: 'Also reach me on 98200/11223 for updates.',
+    };
+    const repo = new MemoryTicketRepository();
+    const writer = writerForRepository(repo, ticket.ownerUid);
+    const counting = new CountingAdapter(new StaticAdapter(DRAFT_TEXT, 'in_cloud'));
+    const outcome = await runDraft(
+      { adapter: counting, writer, isOnline: () => true },
+      ticket,
+      tampered,
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') {
+      expect(outcome.error).toMatch(/survived redaction/);
+      expect(outcome.error).toContain('phone');
+      // The error names the type only — never the surviving value.
+      expect(outcome.error).not.toContain('98200/11223');
+    }
+    expect(counting.counts.text).toBe(0);
+    expect(counting.counts.structured).toBe(0);
+    const events = await repo.listRouteEvents(ticket.ownerUid);
+    expect(events).toHaveLength(1);
+    expect(events[0].outcome).toBe('failed');
   });
 
   it('draft records: AI drafts carry their route; manual drafts honestly carry none', async () => {

@@ -133,10 +133,21 @@ function collectRawMatches(text: string): RawMatch[] {
 
   matches.push(...collect(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g, text, 'email'));
   matches.push(...collect(/\bpay_[A-Za-z0-9]{6,}\b/g, text, 'payment-reference'));
-  matches.push(...collect(/\bORD[-\s]?\d{4,}\b/gi, text, 'order-id'));
+  matches.push(...collect(/\bORD[-.\s/]?\d{4,}\b/gi, text, 'order-id'));
   // Telephone: Indian numbers, with the country code and the digit groups
   // optionally split by spaces, dots, or dashes (or not split at all).
   matches.push(...collect(/(?<!\d)(?:\+91[\s.-]?)?\d{5}[\s.-]?\d{5}(?!\d)/g, text, 'phone'));
+  // Telephone, loose forms (T-2.8 QA): a slash separator, parentheses
+  // around the first group or the country code, or a split inside a digit
+  // group (space or newline). Up to two separator characters may sit
+  // between digits ("(98200) 11223" has ") " between its groups). The
+  // shape is deliberately strict about the digit count — exactly ten
+  // subscriber digits, optionally behind a 91 country code — and the
+  // lookarounds refuse to carve a "number" out of a longer digit run, so
+  // 12-digit UPI-style references and PINs are not swallowed.
+  matches.push(
+    ...collect(/(?<![\d+])(?:\+?91[\s./()-]*)?\(?\d(?:[\s./()-]{0,2}\d){9}(?!\d)/g, text, 'phone'),
+  );
   // Postal address: house number, street name + suffix, city, 6-digit PIN;
   // the commas are optional.
   matches.push(
@@ -160,10 +171,33 @@ function collectRawMatches(text: string): RawMatch[] {
   }
   // Note: no /i flag on the name group — the name itself must be capitalised,
   // or the pattern would swallow following lowercase words ("…and you can…").
-  matches.push(...collect(/[Mm]y name is\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/g, text, 'name', 1));
-  matches.push(...collect(/call me,?\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/g, text, 'name', 1));
+  // A name part is a capitalised word or a middle initial ("S.").
+  const namePart = String.raw`(?:[A-Z][a-z]+|[A-Z]\.)`;
+  matches.push(
+    ...collect(
+      new RegExp(String.raw`[Mm]y name is\s+([A-Z][a-z]+(?:\s+${namePart})+)`, 'g'),
+      text,
+      'name',
+      1,
+    ),
+  );
+  matches.push(
+    ...collect(
+      new RegExp(String.raw`call me,?\s+([A-Z][a-z]+(?:\s+${namePart})+)`, 'g'),
+      text,
+      'name',
+      1,
+    ),
+  );
   // Delivery recipient: "Priya Nair, 14 Rosewood Lane, …".
-  matches.push(...collect(/([A-Z][a-z]+\s+[A-Z][a-z]+)(?=,\s*\d{1,4}\s)/g, text, 'name', 1));
+  matches.push(
+    ...collect(
+      new RegExp(String.raw`([A-Z][a-z]+(?:\s+${namePart})+)(?=,\s*\d{1,4}\s)`, 'g'),
+      text,
+      'name',
+      1,
+    ),
+  );
 
   // Resolve overlaps: earliest span wins; for equal starts, the longer wins.
   matches.sort((a, b) => a.index - b.index || b.length - a.length);

@@ -5,6 +5,7 @@ import type {
   Ticket,
 } from '../lib/types';
 import type { InferenceAdapter } from './inference';
+import { detectPersonalData } from './redaction';
 import {
   DEFAULT_RECORD_TIMEOUT_MS,
   recordRouteEventBounded,
@@ -73,6 +74,22 @@ export async function runDraft(
   const recordTimeoutMs = deps.recordTimeoutMs ?? DEFAULT_RECORD_TIMEOUT_MS;
   const started = performance.now();
   try {
+    // Defence in depth (T-2.8 QA): re-scan the redacted artefact before
+    // any prompt is built. The artefact is supposed to be pattern-free;
+    // if a labelled pattern survived (a detector gap, or a stale or
+    // hand-built artefact), the draft is blocked with a visible reason
+    // rather than placing the value in a prompt. Only the pattern TYPES
+    // are named in the error — never a surviving value.
+    const surviving = [
+      ...detectPersonalData(artefact.redactedSubject),
+      ...detectPersonalData(artefact.redactedBody),
+    ];
+    if (surviving.length > 0) {
+      const survivingTypes = [...new Set(surviving.map((d) => d.type))].join(', ');
+      throw new Error(
+        `Drafting was blocked: ${surviving.length} labelled personal-data pattern(s) survived redaction (${survivingTypes}). Re-run redaction on this ticket; if it persists, edit the ticket text before drafting.`,
+      );
+    }
     const result = await deps.adapter.generateText(buildDraftPrompt(artefact, ticket));
     const latencyMs = Math.round(performance.now() - started);
     if (!result.inferenceSource) {
