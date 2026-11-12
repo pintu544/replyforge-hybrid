@@ -49,26 +49,33 @@
 
 *End-to-end outcome: personal data is redacted on-device, a simple reply is drafted and edited, Privacy Mode refuses cloud fallback, and the exact cloud payload can be inspected before any escalation exists.*
 
-- [ ] **T-2.1 — Implement deterministic personal-data pattern checks**
+- [x] **T-2.1 — Implement deterministic personal-data pattern checks**
       Done means: automated tests cover labelled e-mail, telephone, order-identifier, payment-reference, and postal-address patterns from the fixture, including values split by spaces or punctuation; each check returns a type, masked value, and count without duplicating the raw value into a log.
+      Evidence (12 Nov 2026): src/services/redaction.ts + redaction.test.ts — 8 tests; per-type counts match the fixture labels for all 30 tickets in both directions (nothing missed, nothing invented); split/punctuation variants covered (phone dashes/dots/no-space, "ORD 78451", comma-less postal address); masked values asserted to never contain the raw value.
       Unblocks: T-2.2, T-2.3.
-- [ ] **T-2.2 — Produce the redacted artefact on-device**
+- [x] **T-2.2 — Produce the redacted artefact on-device**
       Done means: running a fixture ticket produces a redacted subject, body, and summary in which every labelled entity is masked; the original and redacted versions can be compared in the workspace; the redaction count matches the fixture label.
+      Evidence (12 Nov 2026): produceRedactedArtefact returns branded redacted subject/body/summary; workspace shows the original-vs-redacted comparison with the entity table; automated test asserts the redaction count equals the label total for all 30 fixture tickets and no labelled raw value survives; live pass recorded in LIVE-VERIFICATION.md.
       Unblocks: T-2.3, T-2.5.
-- [ ] **T-2.3 — Build the cloud-payload safety gate**
+- [x] **T-2.3 — Build the cloud-payload safety gate**
       Done means: the payload builder accepts only the redacted artefact and metadata; the pre-send pattern check blocks a payload containing a labelled surviving pattern in an automated negative test; the operator sees whether the payload was blocked, minimised, or held for review.
+      Evidence (12 Nov 2026): payload.ts brand-checks the artefact at runtime and by type (a raw ticket is refused — tested); the negative test reintroduces a labelled e-mail into a tampered artefact and the gate reports blocked with the surviving type; held-for-review fires when triage's model count exceeds the redaction count; the workspace shows the gate chip (Blocked / Minimised / Held for review).
       Unblocks: T-2.4, T-3.3.
-- [ ] **T-2.4 — Build the “What the cloud sees” preview**
+- [x] **T-2.4 — Build the “What the cloud sees” preview**
       Done means: for any triaged ticket, the preview displays the complete proposed escalation payload — redacted summary, category, urgency, sentiment, trigger, issue count, character count, and redaction count — and an automated comparison proves the previewed payload and the payload object used by the escalation path are identical.
+      Evidence (12 Nov 2026): prepareEscalation is the single path behind the preview; a test proves the previewed payload deep-equals and serialises identically to the payload built by the escalation-side builder call with the same artefact and metadata; the workspace displays summary, category, urgency, sentiment, trigger, issue count, body character count and redaction count.
       Unblocks: Slice 3.
-- [ ] **T-2.5 — Draft and edit a simple reply**
+- [x] **T-2.5 — Draft and edit a simple reply**
       Done means: a device-labelled ticket produces a single-turn draft through the device-preferred handle; the card shows actual route and latency; the operator can edit the text; an empty, failed, or incoherent result can be regenerated or written manually without losing the ticket state.
+      Evidence (12 Nov 2026): drafts.ts runDraft builds its prompt from the redacted artefact only (test asserts no raw personal data in the prompt); tests cover route+latency display data, cloud drafts labelled fallback, empty-result failure, strict-rule pending/rejection behaviour and manual drafts carrying no route; the workspace offers edit, Regenerate and Write-manually without losing ticket state.
       Unblocks: T-2.7.
-- [ ] **T-2.6 — Implement Privacy Mode**
+- [x] **T-2.6 — Implement Privacy Mode**
       Done means: with Privacy Mode on, triage, redaction, and drafting use the device-only handle; with the device route made unavailable in testing, the app makes zero cloud calls, records the refusal, and displays the reason and the non-private alternative. With Privacy Mode off, normal fallback resumes.
+      Evidence (12 Nov 2026): taskRouting.ts refuses before any handle is invoked when Privacy Mode is on and the device route is not available — CountingAdapter tests prove zero structured/text/initialise calls on both handles; the refusal is recorded as a blocked route event with the reason and the non-private alternative displayed; device-only success and cloud-result-discard are tested; normal fallback resumes with Privacy Mode off (tested).
       Unblocks: T-2.8.
-- [ ] **T-2.7 — Add simulated send and offline queue states**
+- [x] **T-2.7 — Add simulated send and offline queue states**
       Done means: an edited draft can be marked “Send (simulated)” and the ticket becomes sent-simulated with no external request to a mail or messaging service; with the network disabled and a device route available, triage and a simple draft complete and the send remains visibly queued; with no route available, the ticket is preserved as queued or failed with a next action.
+      Evidence (12 Nov 2026): sendSimulated performs only the two Firestore-partition writes (draft + ticket) — no external request exists in the path; tests cover sent, queued (save never settles offline → visibly queued, ticket preserved) and failed (next action shown); the workspace shows sent/queued/failed states and reloads on reconnect.
       Unblocks: T-2.8.
 - [ ] **T-2.8 — Adversarial QA for Slice 2**
       Done means: a fresh QA agent reports critical, warning, and informational findings after attacking the privacy boundary with fixture and hand-written edge cases: unusual personal-data formats, a deliberately surviving pattern, Privacy Mode with no device route, offline use, repeated sends, and attempts to reach a cloud payload without a redacted artefact. Every critical is fixed and re-tested.
