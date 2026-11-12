@@ -85,21 +85,28 @@ export interface TriageDeps {
   adapter: InferenceAdapter;
   writer: RouteEventWriter;
   isOnline: () => boolean;
-  /** Bound on awaiting the route-event write; see recordBounded. */
+  /**
+   * Bound on awaiting the FAILURE-path route-event write; see recordBounded.
+   * The success path is not bounded: it awaits its write to durable
+   * completion before any success is shown (strict rule, T-1.10 gate).
+   */
   recordTimeoutMs?: number;
 }
 
 export const DEFAULT_RECORD_TIMEOUT_MS = 10_000;
 
 /**
- * Awaits a route-event write only up to a bound (SPEC NFR-7): the visible
- * task state must settle once the result or error is known, even when the
- * write cannot reach Firestore — while offline the SDK queues the write and
- * its promise stays pending until reconnect, which previously left the UI
- * in the running state indefinitely (T-1.9 QA). A write that settles within
- * the bound keeps the old strictness (a fast rejection propagates); a write
- * that outlives the bound is left to finish in the background — it is never
- * cancelled and still lands when it can.
+ * Awaits a route-event write only up to a bound (SPEC NFR-7). Used ONLY on
+ * the failure path: a failed task's visible state must settle once its error
+ * is known, even when the write cannot reach Firestore — while offline the
+ * SDK queues the write and its promise stays pending until reconnect, which
+ * previously left the UI in the running state indefinitely (T-1.9 QA). A
+ * write that settles within the bound keeps the old strictness (a fast
+ * rejection propagates); a write that outlives the bound is left to finish
+ * in the background — it is never cancelled and still lands when it can.
+ * The success path does NOT use this helper: since the T-1.10 gate decision
+ * it awaits its write unboundedly, so a success is never displayed before
+ * its route event is durably saved.
  */
 async function recordBounded(
   writer: RouteEventWriter,
@@ -139,21 +146,24 @@ export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<Triag
       latencyMs,
       completedAt: new Date().toISOString(),
     };
-    await recordBounded(
-      deps.writer,
-      {
-        ticketId: ticket.id,
-        taskType: 'triage',
-        requestedMode: 'prefer_on_device',
-        actualSource: result.inferenceSource,
-        latencyMs,
-        outcome: result.inferenceSource === 'on_device' ? 'success' : 'fallback',
-        escalationTrigger: null,
-        redactionCount: 0,
-        online: deps.isOnline(),
-      },
-      recordTimeoutMs,
-    );
+    // Strict success rule (Pintu's T-1.10 gate decision, 12 Nov 2026): a
+    // success is displayed only once its route event is durably saved, so
+    // this write is awaited WITHOUT the failure-path bound. If it rejects,
+    // the throw lands in the catch below and the run is surfaced as failed
+    // — the displayed record and the stored proof never diverge. (While
+    // fully offline this await can pend until reconnect; Slice 2's offline
+    // success path must handle that explicitly — see spec/QA-SLICE-1.md.)
+    await deps.writer.record({
+      ticketId: ticket.id,
+      taskType: 'triage',
+      requestedMode: 'prefer_on_device',
+      actualSource: result.inferenceSource,
+      latencyMs,
+      outcome: result.inferenceSource === 'on_device' ? 'success' : 'fallback',
+      escalationTrigger: null,
+      redactionCount: 0,
+      online: deps.isOnline(),
+    });
     return { status: 'success', triage };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - started);

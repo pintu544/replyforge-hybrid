@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Ticket } from '../lib/types';
+import type { RouteEvent, Ticket } from '../lib/types';
 import { MemoryTicketRepository } from './repository';
 import { RouteEventWriter, writerForRepository } from './routeEvents';
 import { FailingAdapter, StaticAdapter } from './inference';
@@ -92,20 +92,14 @@ describe('triage (T-1.8)', () => {
     expect(events[0].actualSource).toBeNull();
   });
 
-  it('settles promptly even when the route-event write never settles (NFR-7, T-1.9 QA)', async () => {
-    // While offline, a Firestore write stays pending until reconnect; the
-    // visible outcome must not wait for it.
+  it('failure settles promptly even when its route-event write never settles (NFR-7, T-1.9 QA)', async () => {
+    // While offline, a Firestore write stays pending until reconnect; a
+    // FAILED task's visible outcome must not wait for it. (The success path
+    // deliberately behaves the other way since Pintu's T-1.10 gate
+    // decision — see the strict-rule tests below. This test previously also
+    // asserted the old proceed-anyway success behaviour; that half was
+    // replaced when the strict rule landed.)
     const hangingWriter = new RouteEventWriter(() => new Promise<void>(() => {}));
-    const success = await runTriage(
-      {
-        adapter: new StaticAdapter(GOOD_JSON, 'in_cloud'),
-        writer: hangingWriter,
-        isOnline: () => false,
-        recordTimeoutMs: 25,
-      },
-      ticket,
-    );
-    expect(success.status).toBe('success');
     const failure = await runTriage(
       {
         adapter: new FailingAdapter('Network is offline.'),
@@ -116,6 +110,67 @@ describe('triage (T-1.8)', () => {
       ticket,
     );
     expect(failure.status).toBe('failed');
+  });
+
+  it('does not resolve success while its route-event write is still pending (T-1.10 strict rule)', async () => {
+    // Strict rule (Pintu, T-1.10 gate): a success is never displayed before
+    // its route event is durably saved. The write is held open by the test;
+    // runTriage must stay unresolved until the write completes.
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const saved: RouteEvent[] = [];
+    const writer = new RouteEventWriter((event) => {
+      saved.push(event);
+      return gate;
+    });
+    let settled = false;
+    const pending = runTriage(
+      { adapter: new StaticAdapter(GOOD_JSON, 'in_cloud'), writer, isOnline: () => true },
+      ticket,
+    ).then((outcome) => {
+      settled = true;
+      return outcome;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(saved).toHaveLength(1);
+    expect(settled).toBe(false);
+    release();
+    const outcome = await pending;
+    expect(settled).toBe(true);
+    expect(outcome.status).toBe('success');
+    expect(saved[0]).toMatchObject({
+      ticketId: 'RF-001',
+      actualSource: 'in_cloud',
+      outcome: 'fallback',
+    });
+  });
+
+  it('surfaces a success whose route-event write rejects as failed, not success (T-1.10 strict rule)', async () => {
+    // If the success event cannot be saved, the run must be shown as failed
+    // — the displayed record and the stored proof never diverge. The first
+    // (success-path) write rejects; the failure-path write that follows it
+    // succeeds and records the failed outcome.
+    const attempts: RouteEvent[] = [];
+    const writer = new RouteEventWriter((event) => {
+      attempts.push(event);
+      return attempts.length === 1
+        ? Promise.reject(new Error('Firestore write failed.'))
+        : Promise.resolve();
+    });
+    const outcome = await runTriage(
+      { adapter: new StaticAdapter(GOOD_JSON, 'in_cloud'), writer, isOnline: () => true },
+      ticket,
+    );
+    expect(outcome.status).toBe('failed');
+    if (outcome.status === 'failed') {
+      expect(outcome.error).toContain('Firestore write failed.');
+    }
+    expect(attempts).toHaveLength(2);
+    expect(attempts[0].outcome).toBe('fallback');
+    expect(attempts[1].outcome).toBe('failed');
+    expect(attempts[1].actualSource).toBeNull();
   });
 
   it('forced error ends in a failed outcome with a failed route event (retryable state)', async () => {

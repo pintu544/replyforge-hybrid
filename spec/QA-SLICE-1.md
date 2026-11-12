@@ -237,3 +237,33 @@
   `recordBounded` usage in `src/services/triage.ts` — flagged here rather
   than decided unilaterally, because it trades against NFR-7/FR-11 offline
   behaviour.
+
+## T-1.10 gate decision — strict success-path rule (12 November 2026)
+
+At the T-1.10 confirmation gate, Pintu confirmed Slice 1 (chat, 12 November
+2026, ~22:30 IST) and decided the open design question above in favour of
+the STRICT rule: **a success is displayed only after its route event is
+durably saved.** The bounded-proceed alternative from the C-2 fix (show the
+result after a 10-second bound and let the event land on reconnect) is
+rejected for the success path — the displayed record and the stored proof
+must never diverge.
+
+- The change is applied to the success path only: `runTriage` in
+  `src/services/triage.ts` now awaits `deps.writer.record(...)` in full; if
+  that write rejects, the run is surfaced as failed rather than shown as a
+  success without proof. The failure path is unchanged — it still records
+  through `recordBounded`, so a failed run can never hang the UI.
+- Recorded implication: while fully offline, the strict await can pend
+  until reconnect, so a fully-offline on-device success (Slice 2's FR-11
+  path) cannot display until the connection returns. Slice 2's design must
+  handle that case explicitly rather than discovering it in testing; the
+  code carries a comment pointing here.
+- Verification: `npm test` 26/26 (including 2 new regression tests for the
+  strict rule), typecheck clean, lint clean, production build succeeds.
+  Live re-test against the running app (QA account A, ticket RF-020, chosen
+  because it had never been triaged): the success card rendered only after
+  the write — route chip "In cloud · 8280 ms" — and the Firestore route
+  event for that run (document `b102e9c4-33ba-4c5f-aa49-9228cda04916`,
+  created 2026-11-12T17:14:15.761Z, before the card appeared) carries the
+  identical `actualSource: in_cloud` and `latencyMs: 8280`, outcome
+  `fallback` for the device-preferred request.
