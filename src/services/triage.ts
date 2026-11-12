@@ -1,6 +1,6 @@
 import type { Category, Sentiment, Ticket, TriageResult, Urgency } from '../lib/types';
 import type { InferenceAdapter } from './inference';
-import type { RouteEventWriter } from './routeEvents';
+import type { RouteEventInput, RouteEventWriter } from './routeEvents';
 
 /**
  * Device-preferred structured triage (SPEC FR-3, TASKS T-1.8).
@@ -85,9 +85,46 @@ export interface TriageDeps {
   adapter: InferenceAdapter;
   writer: RouteEventWriter;
   isOnline: () => boolean;
+  /** Bound on awaiting the route-event write; see recordBounded. */
+  recordTimeoutMs?: number;
+}
+
+export const DEFAULT_RECORD_TIMEOUT_MS = 10_000;
+
+/**
+ * Awaits a route-event write only up to a bound (SPEC NFR-7): the visible
+ * task state must settle once the result or error is known, even when the
+ * write cannot reach Firestore — while offline the SDK queues the write and
+ * its promise stays pending until reconnect, which previously left the UI
+ * in the running state indefinitely (T-1.9 QA). A write that settles within
+ * the bound keeps the old strictness (a fast rejection propagates); a write
+ * that outlives the bound is left to finish in the background — it is never
+ * cancelled and still lands when it can.
+ */
+async function recordBounded(
+  writer: RouteEventWriter,
+  input: RouteEventInput,
+  timeoutMs: number,
+): Promise<void> {
+  const settled = writer.record(input).then(
+    () => ({ ok: true as const }),
+    (err: unknown) => ({ ok: false as const, err }),
+  );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const expired = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => resolve('timeout'), timeoutMs);
+  });
+  try {
+    const result = await Promise.race([settled, expired]);
+    if (result === 'timeout') return;
+    if (!result.ok) throw result.err;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
 }
 
 export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<TriageOutcome> {
+  const recordTimeoutMs = deps.recordTimeoutMs ?? DEFAULT_RECORD_TIMEOUT_MS;
   const started = performance.now();
   try {
     const result = await deps.adapter.generateStructured(buildTriagePrompt(ticket));
@@ -102,32 +139,40 @@ export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<Triag
       latencyMs,
       completedAt: new Date().toISOString(),
     };
-    await deps.writer.record({
-      ticketId: ticket.id,
-      taskType: 'triage',
-      requestedMode: 'prefer_on_device',
-      actualSource: result.inferenceSource,
-      latencyMs,
-      outcome: result.inferenceSource === 'on_device' ? 'success' : 'fallback',
-      escalationTrigger: null,
-      redactionCount: 0,
-      online: deps.isOnline(),
-    });
+    await recordBounded(
+      deps.writer,
+      {
+        ticketId: ticket.id,
+        taskType: 'triage',
+        requestedMode: 'prefer_on_device',
+        actualSource: result.inferenceSource,
+        latencyMs,
+        outcome: result.inferenceSource === 'on_device' ? 'success' : 'fallback',
+        escalationTrigger: null,
+        redactionCount: 0,
+        online: deps.isOnline(),
+      },
+      recordTimeoutMs,
+    );
     return { status: 'success', triage };
   } catch (err) {
     const latencyMs = Math.round(performance.now() - started);
     try {
-      await deps.writer.record({
-        ticketId: ticket.id,
-        taskType: 'triage',
-        requestedMode: 'prefer_on_device',
-        actualSource: null,
-        latencyMs,
-        outcome: 'failed',
-        escalationTrigger: null,
-        redactionCount: 0,
-        online: deps.isOnline(),
-      });
+      await recordBounded(
+        deps.writer,
+        {
+          ticketId: ticket.id,
+          taskType: 'triage',
+          requestedMode: 'prefer_on_device',
+          actualSource: null,
+          latencyMs,
+          outcome: 'failed',
+          escalationTrigger: null,
+          redactionCount: 0,
+          online: deps.isOnline(),
+        },
+        recordTimeoutMs,
+      );
     } catch {
       // The failure event could not be written (for example, Firestore is not
       // reachable yet). The visible failed state below is the primary record.

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Ticket } from '../lib/types';
 import { MemoryTicketRepository } from './repository';
-import { writerForRepository } from './routeEvents';
+import { RouteEventWriter, writerForRepository } from './routeEvents';
 import { FailingAdapter, StaticAdapter } from './inference';
 import { parseTriageResponse, runTriage } from './triage';
 
@@ -90,6 +90,32 @@ describe('triage (T-1.8)', () => {
     const events = await repo.listRouteEvents(ticket.ownerUid);
     expect(events[0].outcome).toBe('failed');
     expect(events[0].actualSource).toBeNull();
+  });
+
+  it('settles promptly even when the route-event write never settles (NFR-7, T-1.9 QA)', async () => {
+    // While offline, a Firestore write stays pending until reconnect; the
+    // visible outcome must not wait for it.
+    const hangingWriter = new RouteEventWriter(() => new Promise<void>(() => {}));
+    const success = await runTriage(
+      {
+        adapter: new StaticAdapter(GOOD_JSON, 'in_cloud'),
+        writer: hangingWriter,
+        isOnline: () => false,
+        recordTimeoutMs: 25,
+      },
+      ticket,
+    );
+    expect(success.status).toBe('success');
+    const failure = await runTriage(
+      {
+        adapter: new FailingAdapter('Network is offline.'),
+        writer: hangingWriter,
+        isOnline: () => false,
+        recordTimeoutMs: 25,
+      },
+      ticket,
+    );
+    expect(failure.status).toBe('failed');
   });
 
   it('forced error ends in a failed outcome with a failed route event (retryable state)', async () => {
