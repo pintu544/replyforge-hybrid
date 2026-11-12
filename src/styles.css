@@ -269,3 +269,11 @@ textarea { resize: vertical; }
   .app-header { padding: 14px 16px; flex-wrap: wrap; }
   .ticket-list { max-height: none; }
 }
+
+/* Slice 3: evaluation + scorecard panels */
+.run-summary { margin-top: 14px; }
+.run-summary h3 { margin: 0 0 8px; }
+.evaluation-panel .button { margin-top: 4px; }
+.scorecard-panel .triage-grid, .evaluation-panel .triage-grid { margin-top: 12px; }
+.mismatch-list { margin: 6px 0 0; padding-left: 18px; }
+.mismatch-list li { margin: 2px 0; }

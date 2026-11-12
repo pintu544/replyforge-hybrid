@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import type { Draft, PayloadGateStatus, RedactedArtefact, Ticket, TriageResult } from '../lib/types';
 import type { EscalationPreview } from '../services/payload';
+import { triggerLabel, type EscalationResult } from '../services/escalation';
+import type { RoutingDecision } from '../services/routing';
 import type { TriageOutcome } from '../services/triage';
 import { RouteChip } from './TicketList';
 
@@ -28,6 +30,16 @@ export type DraftUiState =
 
 export const READY_DRAFT_UI: DraftUiState = { kind: 'ready', send: { kind: 'idle' }, saveError: null };
 
+export type EscalationUiState =
+  | { kind: 'idle' }
+  | { kind: 'running' }
+  | { kind: 'awaiting-sync'; result: EscalationResult }
+  | { kind: 'refused'; reason: string; alternative: string }
+  | { kind: 'blocked'; note: string }
+  | { kind: 'needs-confirmation'; note: string }
+  | { kind: 'failed'; error: string }
+  | { kind: 'done'; result: EscalationResult };
+
 const GATE_LABEL: Record<PayloadGateStatus, string> = {
   blocked: 'Blocked',
   minimised: 'Minimised',
@@ -54,6 +66,9 @@ export function TicketWorkspace({
   artefact,
   onRedact,
   preview,
+  decision,
+  escalationUi,
+  onEscalate,
   draft,
   draftUi,
   onDraft,
@@ -69,6 +84,9 @@ export function TicketWorkspace({
   artefact: RedactedArtefact | null;
   onRedact: (ticket: Ticket) => void;
   preview: EscalationPreview | null;
+  decision: RoutingDecision | null;
+  escalationUi: EscalationUiState;
+  onEscalate: (ticket: Ticket, confirmedByOperator: boolean) => void;
   draft: Draft | null;
   draftUi: DraftUiState;
   onDraft: (ticket: Ticket) => void;
@@ -88,7 +106,9 @@ export function TicketWorkspace({
 
   const triage = ticket.triage;
   const triageBusy = triageState.kind === 'running' || triageState.kind === 'awaiting-sync';
-  const draftBusy = draftUi.kind === 'running' || draftUi.kind === 'awaiting-sync';
+  const escalationBusy = escalationUi.kind === 'running' || escalationUi.kind === 'awaiting-sync';
+  const draftBusy =
+    draftUi.kind === 'running' || draftUi.kind === 'awaiting-sync' || escalationBusy;
   const labelTotal = ticket.fixture
     ? ticket.fixture.personalData.reduce((n, p) => n + p.count, 0)
     : null;
@@ -300,7 +320,11 @@ export function TicketWorkspace({
               <div><dt>Sentiment</dt><dd>{preview.payload.sentiment}</dd></div>
               <div>
                 <dt>Escalation trigger</dt>
-                <dd>{preview.payload.escalationTrigger ?? 'Not yet assigned (routing arrives in Slice 3)'}</dd>
+                <dd>
+                  {preview.payload.escalationTrigger
+                    ? triggerLabel(preview.payload.escalationTrigger)
+                    : 'None — no trigger fired'}
+                </dd>
               </div>
               <div><dt>Issue count</dt><dd className="num">{preview.payload.issueCount}</dd></div>
               <div><dt>Redacted body characters</dt><dd className="num">{preview.payload.bodyCharacterCount}</dd></div>
@@ -308,10 +332,124 @@ export function TicketWorkspace({
             </dl>
             <p className="triage-note">
               This is the complete escalation payload, built from the redacted summary only: an
-              escalation (Slice 3) sends exactly this object and nothing else. It is not the whole
+              escalation sends exactly this object and nothing else. It is not the whole
               cloud picture — triage itself may have run in the cloud on the ticket text; the
               route chip on the triage card shows which route actually ran.
             </p>
+          </div>
+        )}
+      </div>
+
+      <div className="slice-block">
+        <h3>Escalation</h3>
+        {!triage && (
+          <p className="empty-note">
+            Run triage first: the routing engine decides from the triage result and the redacted
+            text whether this ticket stays on the simple path or escalates.
+          </p>
+        )}
+        {triage && !decision && (
+          <p className="empty-note">Redact this ticket to see the routing decision.</p>
+        )}
+        {triage && decision && decision.route === 'simple' && (
+          <p className="triage-note">
+            No escalation trigger fired — the routing engine keeps this ticket on the simple
+            path. {decision.reason}
+          </p>
+        )}
+        {triage && decision && decision.route === 'escalate' && preview && (
+          <div className="escalation-block">
+            <p>
+              Escalation recommended — <strong>{triggerLabel(decision.trigger)}</strong>.{' '}
+              {decision.reason}
+            </p>
+            <p className="triage-note">
+              The escalation draft is written by the cloud model from the payload previewed
+              above — exactly that object, never the raw ticket.
+              {preview.gate.status === 'held-for-review' &&
+                ' The payload is held for review (see the gate note above): the confirmation below is the explicit review this state requires.'}
+              {preview.gate.status === 'minimised' &&
+                ' Confirming sends exactly the payload above to the cloud model for drafting.'}
+              {privacyMode &&
+                ' Privacy Mode is on: an escalation runs in the cloud by definition, so escalating will be refused and the refusal recorded.'}
+            </p>
+            {preview.gate.status === 'blocked' ? (
+              <button type="button" className="button button--primary" disabled>
+                Escalation blocked by the payload gate
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={escalationBusy || draftUi.kind === 'running' || draftUi.kind === 'awaiting-sync'}
+                onClick={() => onEscalate(ticket, true)}
+              >
+                {escalationUi.kind === 'running'
+                  ? 'Escalating…'
+                  : escalationUi.kind === 'awaiting-sync'
+                    ? 'Awaiting sync…'
+                    : preview.gate.status === 'held-for-review'
+                      ? 'I reviewed the payload — confirm and escalate'
+                      : 'Confirm payload and escalate'}
+              </button>
+            )}
+
+            {escalationUi.kind === 'awaiting-sync' && (
+              <div className="triage-result triage-result--sync" role="status">
+                <p className="triage-failed-title">Escalation draft completed — awaiting sync</p>
+                <p>
+                  The draft below is finished work, but its route record has not saved yet, so no
+                  route is claimed. It becomes a proven success when the record lands.
+                </p>
+                <p className="draft-preview">{escalationUi.result.text}</p>
+              </div>
+            )}
+
+            {escalationUi.kind === 'done' && (
+              <div className="triage-result" aria-label="Escalation result">
+                <div className="triage-route-row">
+                  <RouteChip
+                    source={escalationUi.result.actualSource}
+                    latencyMs={escalationUi.result.latencyMs}
+                  />
+                  <span className="triage-requested">Requested: prefer cloud</span>
+                </div>
+                <p>
+                  Escalation reason: {triggerLabel(escalationUi.result.escalationTrigger)}. The
+                  draft is stored as this ticket&rsquo;s reply draft below — review and edit it
+                  there before the simulated send.
+                </p>
+              </div>
+            )}
+
+            {escalationUi.kind === 'refused' && (
+              <div className="triage-result triage-result--failed" role="alert">
+                <p className="triage-failed-title">Refused — Privacy Mode</p>
+                <p>{escalationUi.reason}</p>
+                <p>{escalationUi.alternative}</p>
+                <p className="num">The refusal was recorded as a route event. No model call was made.</p>
+              </div>
+            )}
+
+            {escalationUi.kind === 'blocked' && (
+              <div className="triage-result triage-result--failed" role="alert">
+                <p className="triage-failed-title">Escalation blocked</p>
+                <p>{escalationUi.note}</p>
+                <p className="num">The block was recorded as a route event. No model call was made.</p>
+              </div>
+            )}
+
+            {escalationUi.kind === 'needs-confirmation' && (
+              <p className="triage-note" role="status">{escalationUi.note}</p>
+            )}
+
+            {escalationUi.kind === 'failed' && (
+              <div className="triage-result triage-result--failed" role="alert">
+                <p className="triage-failed-title">Escalation failed</p>
+                <p>{escalationUi.error}</p>
+                <p>The ticket and any draft below are unchanged.</p>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -398,11 +536,19 @@ export function TicketWorkspace({
               <div className="triage-route-row">
                 <RouteChip source={draft.actualSource} latencyMs={draft.latencyMs ?? undefined} />
                 <span className="triage-requested">
-                  Requested: {draft.requestedMode === 'only_on_device' ? 'on-device only' : 'prefer on-device'}
+                  Requested:{' '}
+                  {draft.requestedMode === 'only_on_device'
+                    ? 'on-device only'
+                    : draft.requestedMode === 'prefer_in_cloud'
+                      ? 'prefer cloud'
+                      : 'prefer on-device'}
                 </span>
               </div>
             ) : (
               <p className="triage-note">Written manually — no AI route was used, so no route is shown.</p>
+            )}
+            {draft.escalationReason && (
+              <p className="triage-note">Escalation draft — reason: {draft.escalationReason}.</p>
             )}
             {draftUi.kind === 'ready' && draftUi.saveError && (
               <p className="form-error" role="alert">

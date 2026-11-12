@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getFirebaseServices } from './lib/firebase';
-import type { Draft, RedactedArtefact, Ticket } from './lib/types';
+import type { Draft, EvaluationRun, RedactedArtefact, RouteEvent, Ticket } from './lib/types';
 import { useAuth } from './hooks/useAuth';
 import { FirestoreTicketRepository, type TicketRepository } from './services/repository';
 import { loadFixture } from './services/fixtureLoader';
 import { writerForRepository, type RouteEventWriter } from './services/routeEvents';
 import {
+  FirebaseCloudPreferredAdapter,
   FirebaseDeviceOnlyAdapter,
   FirebaseDevicePreferredAdapter,
 } from './services/inference';
@@ -15,26 +16,41 @@ import { produceRedactedArtefact } from './services/redaction';
 import { prepareEscalation, type EscalationPreview } from './services/payload';
 import { recordRefusal, resolveTaskRoute, type TaskAdapters } from './services/taskRouting';
 import { manualDraftRecord, runDraft, sendSimulated, toDraftRecord } from './services/drafts';
+import {
+  DEFAULT_ROUTING_CONFIG,
+  loadAppConfig,
+  type RoutingConfig,
+} from './services/appConfig';
+import { decideRoute, type RoutingDecision } from './services/routing';
+import { runEscalation, toEscalationDraftRecord } from './services/escalation';
+import { runEvaluation } from './services/evaluation';
 import fixtureFileJson from '../fixtures/tickets.json';
 import type { FixtureFile } from './lib/types';
 import { AuthPanel } from './components/AuthPanel';
 import { HybridStatusPanel } from './components/HybridStatusPanel';
 import { TicketList } from './components/TicketList';
+import { EvaluationPanel } from './components/EvaluationPanel';
+import { ScorecardPanel } from './components/ScorecardPanel';
 import {
   ManualTicketForm,
   READY_DRAFT_UI,
   TicketWorkspace,
   type DraftUiState,
+  type EscalationUiState,
   type TriageUiState,
 } from './components/TicketWorkspace';
 
 const fixtureFile = fixtureFileJson as FixtureFile;
+
+/** Recorded on each EvaluationRun so its figures carry their provenance. */
+const DEVICE_DESCRIPTION = 'The operator’s machine, in this browser session';
 
 interface UserServices {
   repo: TicketRepository;
   writer: RouteEventWriter;
   adapter: FirebaseDevicePreferredAdapter;
   deviceOnlyAdapter: FirebaseDeviceOnlyAdapter;
+  cloudAdapter: FirebaseCloudPreferredAdapter;
 }
 
 export default function App() {
@@ -49,6 +65,25 @@ export default function App() {
   const [redactions, setRedactions] = useState<Record<string, RedactedArtefact>>({});
   const [draftsByTicket, setDraftsByTicket] = useState<Record<string, Draft>>({});
   const [draftUiStates, setDraftUiStates] = useState<Record<string, DraftUiState>>({});
+  const [escalationUiStates, setEscalationUiStates] = useState<Record<string, EscalationUiState>>({});
+  const [routeEvents, setRouteEvents] = useState<RouteEvent[]>([]);
+  const [evaluationRuns, setEvaluationRuns] = useState<EvaluationRun[]>([]);
+  const [evalProgress, setEvalProgress] = useState<{ done: number; total: number } | null>(null);
+  const [routingConfig, setRoutingConfig] = useState<RoutingConfig>(DEFAULT_ROUTING_CONFIG);
+
+  // Routing configuration (Slice 3, T-3.1): Remote Config values merge
+  // over the in-code defaults; any failure resolves to the defaults, so
+  // the app behaves identically until the console template is published.
+  useEffect(() => {
+    const services = getFirebaseServices();
+    let cancelled = false;
+    void loadAppConfig(services?.app ?? null).then((config) => {
+      if (!cancelled) setRoutingConfig(config);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const userServices = useMemo<UserServices | null>(() => {
     const services = getFirebaseServices();
@@ -57,10 +92,11 @@ export default function App() {
     return {
       repo,
       writer: writerForRepository(repo, auth.user.uid),
-      adapter: new FirebaseDevicePreferredAdapter(services.ai),
-      deviceOnlyAdapter: new FirebaseDeviceOnlyAdapter(services.ai),
+      adapter: new FirebaseDevicePreferredAdapter(services.ai, routingConfig.cloudModelName),
+      deviceOnlyAdapter: new FirebaseDeviceOnlyAdapter(services.ai, routingConfig.cloudModelName),
+      cloudAdapter: new FirebaseCloudPreferredAdapter(services.ai, routingConfig.cloudModelName),
     };
-  }, [auth.user]);
+  }, [auth.user, routingConfig]);
 
   const controllerRef = useRef<AvailabilityController | null>(null);
   if (!controllerRef.current) {
@@ -112,6 +148,20 @@ export default function App() {
     const drafts = await userServices.repo.listDrafts(auth.user.uid);
     if (!isCurrentSession(epoch)) return;
     setDraftsByTicket(Object.fromEntries(drafts.map((d) => [d.ticketId, d])));
+    // Scorecard inputs (Slice 3): stored route events + evaluation runs.
+    // A metrics read failure must not fail the inbox — the panels show
+    // their empty states and the next refresh retries.
+    try {
+      const [events, runs] = await Promise.all([
+        userServices.repo.listRouteEvents(auth.user.uid),
+        userServices.repo.listEvaluationRuns(auth.user.uid),
+      ]);
+      if (!isCurrentSession(epoch)) return;
+      setRouteEvents(events);
+      setEvaluationRuns(runs);
+    } catch {
+      // See above: metrics are a display, task flows keep their own proof.
+    }
   }, [userServices, auth.user, isCurrentSession]);
 
   // A queued simulated send lands when the connection returns; reloading on
@@ -138,6 +188,10 @@ export default function App() {
       setRedactions({});
       setDraftsByTicket({});
       setDraftUiStates({});
+      setEscalationUiStates({});
+      setRouteEvents([]);
+      setEvaluationRuns([]);
+      setEvalProgress(null);
       setPrivacyMode(false);
       setInboxMessage(null);
       setInboxError(null);
@@ -261,6 +315,7 @@ export default function App() {
             writer: userServices.writer,
             isOnline: () => navigator.onLine,
             requestedMode: resolution.requestedMode,
+            promptTemplate: routingConfig.triagePrompt,
             onLocalSuccess: (triage) => {
               if (!isCurrentSession(epoch)) return;
               // Slice 2 awaiting-sync state: finished work, no route claim,
@@ -294,7 +349,15 @@ export default function App() {
         triageInFlightRef.current.delete(ticket.id);
       }
     },
-    [userServices, taskAdapters, deviceAvailabilityNow, privacyMode, freshest, isCurrentSession],
+    [
+      userServices,
+      taskAdapters,
+      deviceAvailabilityNow,
+      privacyMode,
+      freshest,
+      isCurrentSession,
+      routingConfig,
+    ],
   );
 
   const handleRedact = useCallback(
@@ -363,6 +426,7 @@ export default function App() {
             writer: userServices.writer,
             isOnline: () => navigator.onLine,
             requestedMode: resolution.requestedMode,
+            promptTemplate: routingConfig.draftPrompt,
             onLocalSuccess: (draft) => {
               if (!isCurrentSession(epoch)) return;
               setDraftUiStates((s) => ({
@@ -410,6 +474,7 @@ export default function App() {
       redactions,
       isCurrentSession,
       revertSentTicketIfNeeded,
+      routingConfig,
     ],
   );
 
@@ -536,6 +601,165 @@ export default function App() {
     [userServices, auth.user, draftsByTicket, freshest, isCurrentSession],
   );
 
+  const handleEscalate = useCallback(
+    async (ticket: Ticket, confirmedByOperator: boolean) => {
+      if (!userServices || !auth.user) return;
+      // Escalation is part of the ticket's draft lifecycle: the shared
+      // in-flight guard keeps it from overlapping a draft or a send.
+      if (draftActionInFlightRef.current.has(ticket.id)) return;
+      draftActionInFlightRef.current.add(ticket.id);
+      const epoch = sessionEpochRef.current;
+      try {
+        const current = freshest(ticket);
+        const triage = current.triage;
+        if (!triage) return;
+        // Rebuild the preview through the same single preparation path,
+        // from the freshest ticket and the current routing decision, so
+        // the payload the operator confirmed is the identical object the
+        // escalation consumes (T-3.3) — it is never rebuilt differently
+        // downstream.
+        const artefact = redactions[ticket.id] ?? produceRedactedArtefact(current);
+        const decision = decideRoute(
+          {
+            sentiment: triage.sentiment,
+            confidence: triage.confidence,
+            issueCount: triage.issueCount,
+            language: current.language,
+            redactedText: `${artefact.redactedSubject}\n${artefact.redactedBody}`,
+            redactedBodyChars: artefact.redactedBody.length,
+          },
+          routingConfig,
+        );
+        const preview = prepareEscalation(current, triage, decision.trigger);
+        setEscalationUiStates((s) => ({ ...s, [ticket.id]: { kind: 'running' } }));
+        const outcome = await runEscalation(
+          {
+            adapter: userServices.cloudAdapter,
+            writer: userServices.writer,
+            isOnline: () => navigator.onLine,
+            confirmedByOperator,
+            privacyMode,
+            promptTemplate: routingConfig.escalationPrompt,
+            onLocalSuccess: (result) => {
+              if (!isCurrentSession(epoch)) return;
+              setEscalationUiStates((s) => ({
+                ...s,
+                [ticket.id]: { kind: 'awaiting-sync', result },
+              }));
+            },
+          },
+          ticket.id,
+          preview,
+        );
+        if (!isCurrentSession(epoch)) return;
+        if (outcome.status === 'success') {
+          const record = toEscalationDraftRecord(current, preview.payload, outcome.result);
+          let saveError: string | null = null;
+          try {
+            await userServices.repo.saveDraft(auth.user.uid, record);
+          } catch (err) {
+            saveError = err instanceof Error ? err.message : 'The draft could not be saved.';
+          }
+          if (!isCurrentSession(epoch)) return;
+          // The escalation draft becomes the ticket's reply draft: it
+          // supersedes any earlier simulated send, exactly like a fresh
+          // simple draft, and the ticket records its escalated state.
+          await revertSentTicketIfNeeded(ticket, epoch);
+          const escalated: Ticket = { ...freshest(ticket), status: 'escalated' };
+          try {
+            await userServices.repo.saveTicket(escalated);
+          } catch {
+            // The status is also set in memory below.
+          }
+          if (!isCurrentSession(epoch)) return;
+          setTickets((list) => list.map((t) => (t.id === escalated.id ? escalated : t)));
+          setDraftsByTicket((d) => ({ ...d, [ticket.id]: record }));
+          setDraftUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'ready', send: { kind: 'idle' }, saveError },
+          }));
+          setEscalationUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'done', result: outcome.result },
+          }));
+          // The scorecard gains an escalation event; refresh its inputs.
+          void refreshTickets();
+        } else if (outcome.status === 'refused') {
+          setEscalationUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'refused', reason: outcome.reason, alternative: outcome.alternative },
+          }));
+        } else if (outcome.status === 'blocked') {
+          setEscalationUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'blocked', note: outcome.note },
+          }));
+        } else if (outcome.status === 'needs-confirmation') {
+          setEscalationUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'needs-confirmation', note: outcome.note },
+          }));
+        } else {
+          setEscalationUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'failed', error: outcome.error },
+          }));
+        }
+      } finally {
+        draftActionInFlightRef.current.delete(ticket.id);
+      }
+    },
+    [
+      userServices,
+      auth.user,
+      privacyMode,
+      redactions,
+      routingConfig,
+      freshest,
+      isCurrentSession,
+      revertSentTicketIfNeeded,
+      refreshTickets,
+    ],
+  );
+
+  const evalInFlightRef = useRef(false);
+
+  const handleRunEvaluation = useCallback(async () => {
+    if (!userServices || !auth.user) return;
+    if (evalInFlightRef.current) return;
+    evalInFlightRef.current = true;
+    const epoch = sessionEpochRef.current;
+    setEvalProgress({ done: 0, total: fixtureFile.tickets.length });
+    try {
+      const run = await runEvaluation(
+        {
+          adapter: userServices.adapter,
+          writer: userServices.writer,
+          isOnline: () => navigator.onLine,
+          config: routingConfig,
+          promptTemplate: routingConfig.triagePrompt,
+          deviceDescription: DEVICE_DESCRIPTION,
+          fixtureVersion: fixtureFile.fixtureVersion,
+          onProgress: (done, total) => {
+            if (isCurrentSession(epoch)) setEvalProgress({ done, total });
+          },
+        },
+        ticketsRef.current,
+      );
+      await userServices.repo.saveEvaluationRun(auth.user.uid, run);
+      if (!isCurrentSession(epoch)) return;
+      setEvaluationRuns((runs) => [run, ...runs]);
+      const events = await userServices.repo.listRouteEvents(auth.user.uid);
+      if (!isCurrentSession(epoch)) return;
+      setRouteEvents(events);
+    } catch {
+      // A failed run saves nothing; the panel keeps the previous runs.
+    } finally {
+      evalInFlightRef.current = false;
+      if (isCurrentSession(epoch)) setEvalProgress(null);
+    }
+  }, [userServices, auth.user, routingConfig, isCurrentSession]);
+
   const handleAddManual = useCallback(
     async (subject: string, body: string) => {
       if (!userServices || !auth.user) throw new Error('Sign in first.');
@@ -569,13 +793,34 @@ export default function App() {
     [userServices, auth.user, isCurrentSession],
   );
 
+  // The routing engine's decision for the selected ticket (Slice 3,
+  // T-3.2): triage output plus the REDACTED artefact — keyword checks run
+  // on the redacted text only, never the raw ticket.
+  const selectedDecision: RoutingDecision | null = useMemo(() => {
+    if (!selected?.triage) return null;
+    const artefact = redactions[selected.id];
+    if (!artefact) return null;
+    return decideRoute(
+      {
+        sentiment: selected.triage.sentiment,
+        confidence: selected.triage.confidence,
+        issueCount: selected.triage.issueCount,
+        language: selected.language,
+        redactedText: `${artefact.redactedSubject}\n${artefact.redactedBody}`,
+        redactedBodyChars: artefact.redactedBody.length,
+      },
+      routingConfig,
+    );
+  }, [selected, redactions, routingConfig]);
+
   const selectedPreview: EscalationPreview | null = useMemo(() => {
     if (!selected?.triage) return null;
     if (!redactions[selected.id]) return null;
     // The single preparation path: the preview shows the exact payload
-    // object the escalation path will consume (T-2.4).
-    return prepareEscalation(selected, selected.triage);
-  }, [selected, redactions]);
+    // object the escalation path will consume (T-2.4) — now carrying the
+    // routing engine's trigger (T-3.3).
+    return prepareEscalation(selected, selected.triage, selectedDecision?.trigger ?? null);
+  }, [selected, redactions, selectedDecision]);
 
   const selectedDraftUi: DraftUiState = selected
     ? (draftUiStates[selected.id] ?? (draftsByTicket[selected.id] ? READY_DRAFT_UI : { kind: 'idle' }))
@@ -654,22 +899,35 @@ export default function App() {
           )}
           {inboxMessage && <p className="banner">{inboxMessage}</p>}
           {auth.user ? (
-            <TicketWorkspace
-              ticket={selected}
-              triageState={selected ? (triageStates[selected.id] ?? { kind: 'idle' }) : { kind: 'idle' }}
-              onRunTriage={(t) => void handleRunTriage(t)}
-              artefact={selected ? (redactions[selected.id] ?? null) : null}
-              onRedact={(t) => void handleRedact(t)}
-              preview={selectedPreview}
-              draft={selected ? (draftsByTicket[selected.id] ?? null) : null}
-              draftUi={selectedDraftUi}
-              onDraft={(t) => void handleDraft(t)}
-              onManualDraft={(t) => void handleManualDraft(t)}
-              onDraftTextChange={handleDraftTextChange}
-              onDraftSave={(t) => void handleDraftSave(t)}
-              onSend={(t) => void handleSend(t)}
-              privacyMode={privacyMode}
-            />
+            <>
+              <TicketWorkspace
+                ticket={selected}
+                triageState={selected ? (triageStates[selected.id] ?? { kind: 'idle' }) : { kind: 'idle' }}
+                onRunTriage={(t) => void handleRunTriage(t)}
+                artefact={selected ? (redactions[selected.id] ?? null) : null}
+                onRedact={(t) => void handleRedact(t)}
+                preview={selectedPreview}
+                decision={selectedDecision}
+                escalationUi={
+                  selected ? (escalationUiStates[selected.id] ?? { kind: 'idle' }) : { kind: 'idle' }
+                }
+                onEscalate={(t, confirmed) => void handleEscalate(t, confirmed)}
+                draft={selected ? (draftsByTicket[selected.id] ?? null) : null}
+                draftUi={selectedDraftUi}
+                onDraft={(t) => void handleDraft(t)}
+                onManualDraft={(t) => void handleManualDraft(t)}
+                onDraftTextChange={handleDraftTextChange}
+                onDraftSave={(t) => void handleDraftSave(t)}
+                onSend={(t) => void handleSend(t)}
+                privacyMode={privacyMode}
+              />
+              <EvaluationPanel
+                runs={evaluationRuns}
+                progress={evalProgress}
+                onRun={() => void handleRunEvaluation()}
+              />
+              <ScorecardPanel events={routeEvents} runs={evaluationRuns} />
+            </>
           ) : (
             <section className="panel workspace-panel" aria-label="Welcome">
               <h2>How ReplyForge works</h2>

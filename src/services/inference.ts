@@ -76,10 +76,12 @@ export abstract class FirebaseHybridAdapter implements InferenceAdapter {
   private textModel: GenerativeModel | null = null;
   private readonly ai: AI;
   private readonly mode: InferenceMode;
+  private readonly modelName: string;
 
-  protected constructor(ai: AI, mode: InferenceMode) {
+  protected constructor(ai: AI, mode: InferenceMode, modelName: string = cloudModelName) {
     this.ai = ai;
     this.mode = mode;
+    this.modelName = modelName;
   }
 
   private getStructuredModel(): GenerativeModel {
@@ -90,7 +92,7 @@ export abstract class FirebaseHybridAdapter implements InferenceAdapter {
           promptOptions: { responseConstraint: TRIAGE_JSON_SCHEMA },
         },
         inCloudParams: {
-          model: cloudModelName,
+          model: this.modelName,
           generationConfig: {
             responseMimeType: 'application/json',
             responseSchema: triageResponseSchema(),
@@ -105,7 +107,7 @@ export abstract class FirebaseHybridAdapter implements InferenceAdapter {
     if (!this.textModel) {
       this.textModel = getGenerativeModel(this.ai, {
         mode: this.mode,
-        inCloudParams: { model: cloudModelName },
+        inCloudParams: { model: this.modelName },
       });
     }
     return this.textModel;
@@ -137,8 +139,8 @@ export abstract class FirebaseHybridAdapter implements InferenceAdapter {
  * on-device and falls back to the cloud model inside Firebase AI Logic.
  */
 export class FirebaseDevicePreferredAdapter extends FirebaseHybridAdapter {
-  constructor(ai: AI) {
-    super(ai, InferenceMode.PREFER_ON_DEVICE);
+  constructor(ai: AI, modelName?: string) {
+    super(ai, InferenceMode.PREFER_ON_DEVICE, modelName);
   }
 }
 
@@ -147,15 +149,15 @@ export class FirebaseDevicePreferredAdapter extends FirebaseHybridAdapter {
  * on-device only, so a cloud route is never a valid result from this handle.
  */
 export class FirebaseDeviceOnlyAdapter extends FirebaseHybridAdapter {
-  constructor(ai: AI) {
-    super(ai, InferenceMode.ONLY_ON_DEVICE);
+  constructor(ai: AI, modelName?: string) {
+    super(ai, InferenceMode.ONLY_ON_DEVICE, modelName);
   }
 }
 
 /** Cloud-preferred handle; the escalation path consumes it in Slice 3. */
 export class FirebaseCloudPreferredAdapter extends FirebaseHybridAdapter {
-  constructor(ai: AI) {
-    super(ai, InferenceMode.PREFER_IN_CLOUD);
+  constructor(ai: AI, modelName?: string) {
+    super(ai, InferenceMode.PREFER_IN_CLOUD, modelName);
   }
 }
 
