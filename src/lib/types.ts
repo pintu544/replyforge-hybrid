@@ -190,6 +190,51 @@ export interface RouteEvent {
   createdAt: string;
 }
 
+/**
+ * One ticket's outcome inside an EvaluationRun (Slice 3, TASKS T-3.4).
+ * Labels, counts, and decisions only — no ticket text (NFR-3 applies to
+ * evaluation records exactly as it does to route events).
+ */
+export interface EvaluationTicketResult {
+  ticketId: string;
+  expectedRoute: ExpectedRoute;
+  /** The path the routing engine selected; null when triage failed. */
+  selectedRoute: 'simple' | 'escalate' | null;
+  trigger: string | null;
+  correct: boolean;
+  /** Actual route of the evaluation triage, from its inference result. */
+  triageActualSource: ActualSource | null;
+  redactionCount: number;
+  /** Labelled personal-data items for this ticket (gold). */
+  labelledCount: number;
+  /** Labelled patterns found surviving in the built payload. */
+  survivingPatterns: number;
+}
+
+/**
+ * A repeatable run of the routing pipeline over the whole fixture set
+ * (DESIGN.md data model, extended with the measured route split and the
+ * per-ticket results so comparisons stay reproducible).
+ */
+export interface EvaluationRun {
+  id: string;
+  fixtureVersion: number;
+  ticketCount: number;
+  correctRoutes: number;
+  /** correctRoutes / ticketCount, 0..1. */
+  accuracy: number;
+  labelledRedactions: number;
+  survivingLabelledPatterns: number;
+  /** Measured triage routes during the run — actuals, never labels. */
+  onDeviceCount: number;
+  inCloudCount: number;
+  failedCount: number;
+  deviceDescription: string;
+  chromeVersion: string | null;
+  createdAt: string;
+  results: EvaluationTicketResult[];
+}
+
 /** The raw fixture record shape in fixtures/tickets.json. */
 export interface FixtureTicketRecord {
   id: string;

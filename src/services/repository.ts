@@ -5,7 +5,7 @@ import {
   setDoc,
   type Firestore,
 } from 'firebase/firestore';
-import type { Draft, RouteEvent, Ticket } from '../lib/types';
+import type { Draft, EvaluationRun, RouteEvent, Ticket } from '../lib/types';
 
 /**
  * Persistence boundary. All private records live under the signed-in user's
@@ -19,6 +19,8 @@ export interface TicketRepository {
   addRouteEvent(ownerUid: string, event: RouteEvent): Promise<void>;
   listDrafts(ownerUid: string): Promise<Draft[]>;
   saveDraft(ownerUid: string, draft: Draft): Promise<void>;
+  listEvaluationRuns(ownerUid: string): Promise<EvaluationRun[]>;
+  saveEvaluationRun(ownerUid: string, run: EvaluationRun): Promise<void>;
 }
 
 /**
@@ -70,6 +72,16 @@ export class FirestoreTicketRepository implements TicketRepository {
   async saveDraft(ownerUid: string, draft: Draft): Promise<void> {
     await setDoc(doc(this.db, 'users', ownerUid, 'drafts', draft.id), draft);
   }
+
+  async listEvaluationRuns(ownerUid: string): Promise<EvaluationRun[]> {
+    const snap = await getDocs(collection(this.db, 'users', ownerUid, 'evaluationRuns'));
+    const runs = snap.docs.map((d) => d.data() as EvaluationRun);
+    return runs.sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  }
+
+  async saveEvaluationRun(ownerUid: string, run: EvaluationRun): Promise<void> {
+    await setDoc(doc(this.db, 'users', ownerUid, 'evaluationRuns', run.id), run);
+  }
 }
 
 /** Test double with identical semantics to the Firestore implementation. */
@@ -77,6 +89,7 @@ export class MemoryTicketRepository implements TicketRepository {
   private tickets = new Map<string, Ticket>();
   private events = new Map<string, RouteEvent[]>();
   private drafts = new Map<string, Draft>();
+  private runs = new Map<string, EvaluationRun[]>();
 
   private key(ownerUid: string, id: string): string {
     return `${ownerUid}::${id}`;
@@ -114,5 +127,17 @@ export class MemoryTicketRepository implements TicketRepository {
 
   async saveDraft(ownerUid: string, draft: Draft): Promise<void> {
     this.drafts.set(this.key(ownerUid, draft.id), structuredClone(draft));
+  }
+
+  async listEvaluationRuns(ownerUid: string): Promise<EvaluationRun[]> {
+    return [...(this.runs.get(ownerUid) ?? [])].sort((a, b) =>
+      b.createdAt.localeCompare(a.createdAt),
+    );
+  }
+
+  async saveEvaluationRun(ownerUid: string, run: EvaluationRun): Promise<void> {
+    const list = this.runs.get(ownerUid) ?? [];
+    list.push(structuredClone(run));
+    this.runs.set(ownerUid, list);
   }
 }
