@@ -19,8 +19,12 @@ export interface StructuredResult {
   inferenceSource: ActualSource | null;
 }
 
+/** Plain-text generation returns the same shape: text plus the actual route. */
+export type TextResult = StructuredResult;
+
 export interface InferenceAdapter {
   generateStructured(prompt: string): Promise<StructuredResult>;
+  generateText(prompt: string): Promise<TextResult>;
   initialiseDeviceModel(onProgress: (value: number) => void): Promise<void>;
 }
 
@@ -57,24 +61,31 @@ function triageResponseSchema() {
   });
 }
 
-/**
- * Device-preferred hybrid model: short, single-turn work prefers Gemini Nano
- * on-device and falls back to the cloud model inside Firebase AI Logic.
- * Structured output is requested on both routes (responseConstraint for the
- * Prompt API, responseSchema for the cloud).
- */
-export class FirebaseDevicePreferredAdapter implements InferenceAdapter {
-  private model: GenerativeModel | null = null;
-  private readonly ai: AI;
+function mapSource(source: string | undefined): ActualSource | null {
+  return source === 'on_device' || source === 'in_cloud' ? source : null;
+}
 
-  constructor(ai: AI) {
+/**
+ * A Firebase AI Logic model handle bound to one InferenceMode (DESIGN.md:
+ * two standing handles plus the Privacy Mode device-only handle). Structured
+ * output uses the route-appropriate configuration from the Firebase hybrid
+ * documentation; text generation uses the same mode without a schema.
+ */
+export abstract class FirebaseHybridAdapter implements InferenceAdapter {
+  private structuredModel: GenerativeModel | null = null;
+  private textModel: GenerativeModel | null = null;
+  private readonly ai: AI;
+  private readonly mode: InferenceMode;
+
+  protected constructor(ai: AI, mode: InferenceMode) {
     this.ai = ai;
+    this.mode = mode;
   }
 
-  private getModel(): GenerativeModel {
-    if (!this.model) {
-      this.model = getGenerativeModel(this.ai, {
-        mode: InferenceMode.PREFER_ON_DEVICE,
+  private getStructuredModel(): GenerativeModel {
+    if (!this.structuredModel) {
+      this.structuredModel = getGenerativeModel(this.ai, {
+        mode: this.mode,
         onDeviceParams: {
           promptOptions: { responseConstraint: TRIAGE_JSON_SCHEMA },
         },
@@ -87,24 +98,68 @@ export class FirebaseDevicePreferredAdapter implements InferenceAdapter {
         },
       });
     }
-    return this.model;
+    return this.structuredModel;
+  }
+
+  private getTextModel(): GenerativeModel {
+    if (!this.textModel) {
+      this.textModel = getGenerativeModel(this.ai, {
+        mode: this.mode,
+        inCloudParams: { model: cloudModelName },
+      });
+    }
+    return this.textModel;
   }
 
   async generateStructured(prompt: string): Promise<StructuredResult> {
-    const result = await this.getModel().generateContent(prompt);
-    const source = result.response.inferenceSource;
+    const result = await this.getStructuredModel().generateContent(prompt);
     return {
       text: result.response.text(),
-      inferenceSource: source === 'on_device' || source === 'in_cloud' ? source : null,
+      inferenceSource: mapSource(result.response.inferenceSource),
+    };
+  }
+
+  async generateText(prompt: string): Promise<TextResult> {
+    const result = await this.getTextModel().generateContent(prompt);
+    return {
+      text: result.response.text(),
+      inferenceSource: mapSource(result.response.inferenceSource),
     };
   }
 
   async initialiseDeviceModel(onProgress: (value: number) => void): Promise<void> {
-    await this.getModel().initializeDeviceModel(onProgress);
+    await this.getStructuredModel().initializeDeviceModel(onProgress);
   }
 }
 
-/** Test double: returns a fixed structured response on a fixed route. */
+/**
+ * Device-preferred hybrid model: short, single-turn work prefers Gemini Nano
+ * on-device and falls back to the cloud model inside Firebase AI Logic.
+ */
+export class FirebaseDevicePreferredAdapter extends FirebaseHybridAdapter {
+  constructor(ai: AI) {
+    super(ai, InferenceMode.PREFER_ON_DEVICE);
+  }
+}
+
+/**
+ * Device-only handle for Privacy Mode (SPEC FR-8): Firebase is asked to run
+ * on-device only, so a cloud route is never a valid result from this handle.
+ */
+export class FirebaseDeviceOnlyAdapter extends FirebaseHybridAdapter {
+  constructor(ai: AI) {
+    super(ai, InferenceMode.ONLY_ON_DEVICE);
+  }
+}
+
+/** Cloud-preferred handle; the escalation path consumes it in Slice 3. */
+export class FirebaseCloudPreferredAdapter extends FirebaseHybridAdapter {
+  constructor(ai: AI) {
+    super(ai, InferenceMode.PREFER_IN_CLOUD);
+  }
+}
+
+/** Test double: returns a fixed response on a fixed route, for both shapes. */
 export class StaticAdapter implements InferenceAdapter {
   private readonly text: string;
   private readonly source: ActualSource | null;
@@ -115,6 +170,10 @@ export class StaticAdapter implements InferenceAdapter {
   }
 
   async generateStructured(): Promise<StructuredResult> {
+    return { text: this.text, inferenceSource: this.source };
+  }
+
+  async generateText(): Promise<TextResult> {
     return { text: this.text, inferenceSource: this.source };
   }
 
@@ -133,7 +192,40 @@ export class FailingAdapter implements InferenceAdapter {
     throw new Error(this.message);
   }
 
+  async generateText(): Promise<TextResult> {
+    throw new Error(this.message);
+  }
+
   async initialiseDeviceModel(): Promise<void> {
     throw new Error(this.message);
+  }
+}
+
+/**
+ * Test double: wraps another adapter and counts calls per method, so tests
+ * can prove a handle was never invoked (Privacy Mode's zero-cloud-call
+ * guarantee, T-2.6).
+ */
+export class CountingAdapter implements InferenceAdapter {
+  readonly counts = { structured: 0, text: 0, initialise: 0 };
+  private readonly inner: InferenceAdapter;
+
+  constructor(inner: InferenceAdapter) {
+    this.inner = inner;
+  }
+
+  async generateStructured(prompt: string): Promise<StructuredResult> {
+    this.counts.structured += 1;
+    return this.inner.generateStructured(prompt);
+  }
+
+  async generateText(prompt: string): Promise<TextResult> {
+    this.counts.text += 1;
+    return this.inner.generateText(prompt);
+  }
+
+  async initialiseDeviceModel(onProgress: (value: number) => void): Promise<void> {
+    this.counts.initialise += 1;
+    return this.inner.initialiseDeviceModel(onProgress);
   }
 }

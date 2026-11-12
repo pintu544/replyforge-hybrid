@@ -1,6 +1,17 @@
-import type { Category, Sentiment, Ticket, TriageResult, Urgency } from '../lib/types';
+import type {
+  Category,
+  RequestedMode,
+  Sentiment,
+  Ticket,
+  TriageResult,
+  Urgency,
+} from '../lib/types';
 import type { InferenceAdapter } from './inference';
-import type { RouteEventInput, RouteEventWriter } from './routeEvents';
+import {
+  DEFAULT_RECORD_TIMEOUT_MS,
+  recordRouteEventBounded,
+  type RouteEventWriter,
+} from './routeEvents';
 
 /**
  * Device-preferred structured triage (SPEC FR-3, TASKS T-1.8).
@@ -86,58 +97,45 @@ export interface TriageDeps {
   writer: RouteEventWriter;
   isOnline: () => boolean;
   /**
-   * Bound on awaiting the FAILURE-path route-event write; see recordBounded.
-   * The success path is not bounded: it awaits its write to durable
-   * completion before any success is shown (strict rule, T-1.10 gate).
+   * Which handle the caller selected (Slice 2 task routing). Defaults to
+   * the device-preferred handle; Privacy Mode passes 'only_on_device' with
+   * the device-only adapter.
+   */
+  requestedMode?: RequestedMode;
+  /**
+   * Bound on awaiting the FAILURE-path route-event write; see
+   * recordRouteEventBounded. The success path is not bounded: it awaits its
+   * write to durable completion before any success is shown (strict rule,
+   * T-1.10 gate).
    */
   recordTimeoutMs?: number;
-}
-
-export const DEFAULT_RECORD_TIMEOUT_MS = 10_000;
-
-/**
- * Awaits a route-event write only up to a bound (SPEC NFR-7). Used ONLY on
- * the failure path: a failed task's visible state must settle once its error
- * is known, even when the write cannot reach Firestore — while offline the
- * SDK queues the write and its promise stays pending until reconnect, which
- * previously left the UI in the running state indefinitely (T-1.9 QA). A
- * write that settles within the bound keeps the old strictness (a fast
- * rejection propagates); a write that outlives the bound is left to finish
- * in the background — it is never cancelled and still lands when it can.
- * The success path does NOT use this helper: since the T-1.10 gate decision
- * it awaits its write unboundedly, so a success is never displayed before
- * its route event is durably saved.
- */
-async function recordBounded(
-  writer: RouteEventWriter,
-  input: RouteEventInput,
-  timeoutMs: number,
-): Promise<void> {
-  const settled = writer.record(input).then(
-    () => ({ ok: true as const }),
-    (err: unknown) => ({ ok: false as const, err }),
-  );
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const expired = new Promise<'timeout'>((resolve) => {
-    timer = setTimeout(() => resolve('timeout'), timeoutMs);
-  });
-  try {
-    const result = await Promise.race([settled, expired]);
-    if (result === 'timeout') return;
-    if (!result.ok) throw result.err;
-  } finally {
-    if (timer) clearTimeout(timer);
-  }
+  /**
+   * Slice 2 offline state model: called with the computed result the
+   * moment inference succeeds, BEFORE the durable route-event write. The
+   * caller may show the work as "completed locally — awaiting sync" (with
+   * NO route chip: no route is proven yet) and promotes it to a proven
+   * success only when this function's promise resolves. The promise still
+   * resolves as success solely after the event is durably saved, so the
+   * strict T-1.10 rule is unchanged.
+   */
+  onLocalSuccess?: (triage: TriageResult) => void;
 }
 
 export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<TriageOutcome> {
   const recordTimeoutMs = deps.recordTimeoutMs ?? DEFAULT_RECORD_TIMEOUT_MS;
+  const requestedMode = deps.requestedMode ?? 'prefer_on_device';
   const started = performance.now();
   try {
     const result = await deps.adapter.generateStructured(buildTriagePrompt(ticket));
     const latencyMs = Math.round(performance.now() - started);
     if (!result.inferenceSource) {
       throw new Error('The inference result did not report which route ran, so the task is recorded as failed rather than guessed (SPEC NFR-2).');
+    }
+    if (requestedMode === 'only_on_device' && result.inferenceSource !== 'on_device') {
+      // Privacy Mode promised device-only processing. A cloud result under
+      // the device-only handle breaks that promise, so it is discarded and
+      // recorded as a failure, never displayed as a success.
+      throw new Error('Privacy Mode: the result reported a cloud route, so it was discarded rather than shown.');
     }
     const parsed = parseTriageResponse(result.text);
     const triage: TriageResult = {
@@ -146,17 +144,20 @@ export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<Triag
       latencyMs,
       completedAt: new Date().toISOString(),
     };
+    // Slice 2 awaiting-sync hook: the caller learns the work is done
+    // locally before the proof is durable (see TriageDeps.onLocalSuccess).
+    deps.onLocalSuccess?.(triage);
     // Strict success rule (Pintu's T-1.10 gate decision, 12 Nov 2026): a
     // success is displayed only once its route event is durably saved, so
     // this write is awaited WITHOUT the failure-path bound. If it rejects,
     // the throw lands in the catch below and the run is surfaced as failed
     // — the displayed record and the stored proof never diverge. (While
-    // fully offline this await can pend until reconnect; Slice 2's offline
-    // success path must handle that explicitly — see spec/QA-SLICE-1.md.)
+    // fully offline this await can pend until reconnect; the caller handles
+    // that through onLocalSuccess — see spec/DESIGN.md, Slice 2 note.)
     await deps.writer.record({
       ticketId: ticket.id,
       taskType: 'triage',
-      requestedMode: 'prefer_on_device',
+      requestedMode,
       actualSource: result.inferenceSource,
       latencyMs,
       outcome: result.inferenceSource === 'on_device' ? 'success' : 'fallback',
@@ -168,12 +169,12 @@ export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<Triag
   } catch (err) {
     const latencyMs = Math.round(performance.now() - started);
     try {
-      await recordBounded(
+      await recordRouteEventBounded(
         deps.writer,
         {
           ticketId: ticket.id,
           taskType: 'triage',
-          requestedMode: 'prefer_on_device',
+          requestedMode,
           actualSource: null,
           latencyMs,
           outcome: 'failed',
