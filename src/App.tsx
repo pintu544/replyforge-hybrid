@@ -76,11 +76,32 @@ export default function App() {
     void controllerRef.current?.refresh();
   }, []);
 
+  // Session epoch (T-2.8 QA, generalising the T-1.9 W-1 fix): every change
+  // of signed-in account bumps the epoch. Handlers capture the epoch when
+  // they start and check it before painting any post-await state, so a
+  // task that completes after an account switch cannot paint the previous
+  // account's result — including draft text — into the new session. The
+  // data layer was never the problem (each account's writes stay in its
+  // own partition); this guards the UI state only.
+  const sessionEpochRef = useRef(0);
+  useEffect(() => {
+    sessionEpochRef.current += 1;
+  }, [auth.user?.uid]);
+  const isCurrentSession = useCallback(
+    (epoch: number) => sessionEpochRef.current === epoch,
+    [],
+  );
+
   const refreshTickets = useCallback(async () => {
     if (!userServices || !auth.user) return;
+    // A refresh that straddles an account switch must not paint the old
+    // account's inbox into the new session (T-2.8 QA, session epoch).
+    const epoch = sessionEpochRef.current;
     const existing = await userServices.repo.listTickets(auth.user.uid);
+    if (!isCurrentSession(epoch)) return;
     if (!existing.some((t) => t.source === 'fixture')) {
       const result = await loadFixture(userServices.repo, auth.user.uid, fixtureFile);
+      if (!isCurrentSession(epoch)) return;
       setInboxMessage(
         `Fixture inbox ready: ${result.totalFixtureTickets} tickets (${result.created} newly loaded).`,
       );
@@ -89,8 +110,9 @@ export default function App() {
       setTickets(existing);
     }
     const drafts = await userServices.repo.listDrafts(auth.user.uid);
+    if (!isCurrentSession(epoch)) return;
     setDraftsByTicket(Object.fromEntries(drafts.map((d) => [d.ticketId, d])));
-  }, [userServices, auth.user]);
+  }, [userServices, auth.user, isCurrentSession]);
 
   // A queued simulated send lands when the connection returns; reloading on
   // reconnect is how its outcome becomes visible (SPEC FR-11).
@@ -148,6 +170,44 @@ export default function App() {
 
   const triageInFlightRef = useRef<Set<string>>(new Set());
 
+  // One guard for the whole draft lifecycle of a ticket (T-2.8 QA): an AI
+  // draft, a manual draft, and a simulated send for the same ticket must
+  // never overlap. Previously the AI draft and the send had separate
+  // guards and the manual draft had none, so Write manually could
+  // overwrite an in-flight AI draft and Regenerate could run mid-send.
+  const draftActionInFlightRef = useRef<Set<string>>(new Set());
+
+  /**
+   * A new draft cycle supersedes a simulated send (T-2.8 QA): when a
+   * fresh draft record replaces a sent one, the ticket returns to its
+   * pre-send status ('triaged' when triage exists, otherwise 'inbox'),
+   * so the Send action becomes available again for the new draft.
+   * Without this, Regenerate / Write manually silently overwrote the
+   * sent draft record while the ticket still claimed 'sent-simulated' —
+   * an inconsistent pair. Called only on paths that actually produce a
+   * replacement draft; a refused or failed attempt leaves the sent pair
+   * untouched.
+   */
+  const revertSentTicketIfNeeded = useCallback(
+    async (ticket: Ticket, epoch: number) => {
+      if (!userServices) return;
+      const current = freshest(ticket);
+      if (current.status !== 'sent-simulated') return;
+      const reverted: Ticket = {
+        ...current,
+        status: current.triage ? 'triaged' : 'inbox',
+      };
+      try {
+        await userServices.repo.saveTicket(reverted);
+      } catch {
+        // The in-memory revert below still keeps the pair consistent.
+      }
+      if (!isCurrentSession(epoch)) return;
+      setTickets((list) => list.map((t) => (t.id === reverted.id ? reverted : t)));
+    },
+    [userServices, freshest, isCurrentSession],
+  );
+
   const taskAdapters = useCallback((): TaskAdapters | null => {
     if (!userServices) return null;
     return {
@@ -171,6 +231,7 @@ export default function App() {
       // write a duplicate route event (T-1.9 QA).
       if (triageInFlightRef.current.has(ticket.id)) return;
       triageInFlightRef.current.add(ticket.id);
+      const epoch = sessionEpochRef.current;
       try {
         const resolution = resolveTaskRoute({
           privacyMode,
@@ -178,16 +239,19 @@ export default function App() {
           adapters,
         });
         if (resolution.kind === 'refused') {
+          // Paint the refusal FIRST (T-2.8 QA): recording the refusal
+          // event is bounded at 10 s, and the operator must not wait for
+          // the record to learn the task was refused.
+          setTriageStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'refused', reason: resolution.reason, alternative: resolution.alternative },
+          }));
           await recordRefusal(userServices.writer, {
             ticketId: ticket.id,
             taskType: 'triage',
             redactionCount: ticket.redactionCount,
             isOnline: () => navigator.onLine,
           });
-          setTriageStates((s) => ({
-            ...s,
-            [ticket.id]: { kind: 'refused', reason: resolution.reason, alternative: resolution.alternative },
-          }));
           return;
         }
         setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'running' } }));
@@ -198,6 +262,7 @@ export default function App() {
             isOnline: () => navigator.onLine,
             requestedMode: resolution.requestedMode,
             onLocalSuccess: (triage) => {
+              if (!isCurrentSession(epoch)) return;
               // Slice 2 awaiting-sync state: finished work, no route claim,
               // until the durable route event lands (strict rule, T-1.10).
               setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'awaiting-sync', triage } }));
@@ -205,6 +270,7 @@ export default function App() {
           },
           ticket,
         );
+        if (!isCurrentSession(epoch)) return;
         if (outcome.status === 'success') {
           const updated: Ticket = {
             ...freshest(ticket),
@@ -228,12 +294,13 @@ export default function App() {
         triageInFlightRef.current.delete(ticket.id);
       }
     },
-    [userServices, taskAdapters, deviceAvailabilityNow, privacyMode, freshest],
+    [userServices, taskAdapters, deviceAvailabilityNow, privacyMode, freshest, isCurrentSession],
   );
 
   const handleRedact = useCallback(
     async (ticket: Ticket) => {
       if (!userServices) return;
+      const epoch = sessionEpochRef.current;
       // Deterministic local code: no model call, no route event (T-2.2).
       const artefact = produceRedactedArtefact(ticket);
       setRedactions((r) => ({ ...r, [ticket.id]: artefact }));
@@ -245,24 +312,24 @@ export default function App() {
       };
       try {
         await userServices.repo.saveTicket(updated);
+        if (!isCurrentSession(epoch)) return;
         setTickets((list) => list.map((t) => (t.id === updated.id ? updated : t)));
       } catch {
         // The artefact stays visible for this session even if the summary
         // fields could not be persisted.
       }
     },
-    [userServices, privacyMode, freshest],
+    [userServices, privacyMode, freshest, isCurrentSession],
   );
-
-  const draftInFlightRef = useRef<Set<string>>(new Set());
 
   const handleDraft = useCallback(
     async (ticket: Ticket) => {
       if (!userServices || !auth.user) return;
       const adapters = taskAdapters();
       if (!adapters) return;
-      if (draftInFlightRef.current.has(ticket.id)) return;
-      draftInFlightRef.current.add(ticket.id);
+      if (draftActionInFlightRef.current.has(ticket.id)) return;
+      draftActionInFlightRef.current.add(ticket.id);
+      const epoch = sessionEpochRef.current;
       try {
         // The draft prompt is built from the redacted artefact only; if the
         // ticket has not been redacted yet, redact it first (local, free).
@@ -276,16 +343,17 @@ export default function App() {
           adapters,
         });
         if (resolution.kind === 'refused') {
+          // Paint first, record second — same rule as triage (T-2.8 QA).
+          setDraftUiStates((s) => ({
+            ...s,
+            [ticket.id]: { kind: 'refused', reason: resolution.reason, alternative: resolution.alternative },
+          }));
           await recordRefusal(userServices.writer, {
             ticketId: ticket.id,
             taskType: 'simple-draft',
             redactionCount: artefact.redactionCount,
             isOnline: () => navigator.onLine,
           });
-          setDraftUiStates((s) => ({
-            ...s,
-            [ticket.id]: { kind: 'refused', reason: resolution.reason, alternative: resolution.alternative },
-          }));
           return;
         }
         setDraftUiStates((s) => ({ ...s, [ticket.id]: { kind: 'running' } }));
@@ -296,6 +364,7 @@ export default function App() {
             isOnline: () => navigator.onLine,
             requestedMode: resolution.requestedMode,
             onLocalSuccess: (draft) => {
+              if (!isCurrentSession(epoch)) return;
               setDraftUiStates((s) => ({
                 ...s,
                 [ticket.id]: { kind: 'awaiting-sync', text: draft.text },
@@ -305,6 +374,7 @@ export default function App() {
           ticket,
           artefact,
         );
+        if (!isCurrentSession(epoch)) return;
         if (outcome.status === 'success') {
           const record = toDraftRecord(ticket, outcome.draft);
           let saveError: string | null = null;
@@ -313,6 +383,9 @@ export default function App() {
           } catch (err) {
             saveError = err instanceof Error ? err.message : 'The draft could not be saved.';
           }
+          if (!isCurrentSession(epoch)) return;
+          // A fresh draft supersedes any earlier simulated send.
+          await revertSentTicketIfNeeded(ticket, epoch);
           setDraftsByTicket((d) => ({ ...d, [ticket.id]: record }));
           setDraftUiStates((s) => ({
             ...s,
@@ -325,29 +398,48 @@ export default function App() {
           }));
         }
       } finally {
-        draftInFlightRef.current.delete(ticket.id);
+        draftActionInFlightRef.current.delete(ticket.id);
       }
     },
-    [userServices, auth.user, taskAdapters, deviceAvailabilityNow, privacyMode, redactions],
+    [
+      userServices,
+      auth.user,
+      taskAdapters,
+      deviceAvailabilityNow,
+      privacyMode,
+      redactions,
+      isCurrentSession,
+      revertSentTicketIfNeeded,
+    ],
   );
 
   const handleManualDraft = useCallback(
     async (ticket: Ticket) => {
       if (!userServices || !auth.user) return;
-      const record = manualDraftRecord(ticket, draftsByTicket[ticket.id]?.text ?? '');
-      let saveError: string | null = null;
+      if (draftActionInFlightRef.current.has(ticket.id)) return;
+      draftActionInFlightRef.current.add(ticket.id);
+      const epoch = sessionEpochRef.current;
       try {
-        await userServices.repo.saveDraft(auth.user.uid, record);
-      } catch (err) {
-        saveError = err instanceof Error ? err.message : 'The draft could not be saved.';
+        const record = manualDraftRecord(ticket, draftsByTicket[ticket.id]?.text ?? '');
+        let saveError: string | null = null;
+        try {
+          await userServices.repo.saveDraft(auth.user.uid, record);
+        } catch (err) {
+          saveError = err instanceof Error ? err.message : 'The draft could not be saved.';
+        }
+        if (!isCurrentSession(epoch)) return;
+        // A fresh manual draft supersedes any earlier simulated send.
+        await revertSentTicketIfNeeded(ticket, epoch);
+        setDraftsByTicket((d) => ({ ...d, [ticket.id]: record }));
+        setDraftUiStates((s) => ({
+          ...s,
+          [ticket.id]: { kind: 'ready', send: { kind: 'idle' }, saveError },
+        }));
+      } finally {
+        draftActionInFlightRef.current.delete(ticket.id);
       }
-      setDraftsByTicket((d) => ({ ...d, [ticket.id]: record }));
-      setDraftUiStates((s) => ({
-        ...s,
-        [ticket.id]: { kind: 'ready', send: { kind: 'idle' }, saveError },
-      }));
     },
-    [userServices, auth.user, draftsByTicket],
+    [userServices, auth.user, draftsByTicket, isCurrentSession, revertSentTicketIfNeeded],
   );
 
   const handleDraftTextChange = useCallback((ticket: Ticket, text: string) => {
@@ -371,14 +463,17 @@ export default function App() {
       if (!userServices || !auth.user) return;
       const record = draftsByTicket[ticket.id];
       if (!record || record.state === 'sent-simulated') return;
+      const epoch = sessionEpochRef.current;
       try {
         await userServices.repo.saveDraft(auth.user.uid, record);
+        if (!isCurrentSession(epoch)) return;
         setDraftUiStates((s) => {
           const current = s[ticket.id];
           if (current?.kind !== 'ready') return s;
           return { ...s, [ticket.id]: { ...current, saveError: null } };
         });
       } catch (err) {
+        if (!isCurrentSession(epoch)) return;
         setDraftUiStates((s) => {
           const current = s[ticket.id];
           if (current?.kind !== 'ready') return s;
@@ -392,18 +487,17 @@ export default function App() {
         });
       }
     },
-    [userServices, auth.user, draftsByTicket],
+    [userServices, auth.user, draftsByTicket, isCurrentSession],
   );
-
-  const sendInFlightRef = useRef<Set<string>>(new Set());
 
   const handleSend = useCallback(
     async (ticket: Ticket) => {
       if (!userServices || !auth.user) return;
       const record = draftsByTicket[ticket.id];
       if (!record || record.state === 'sent-simulated') return;
-      if (sendInFlightRef.current.has(ticket.id)) return;
-      sendInFlightRef.current.add(ticket.id);
+      if (draftActionInFlightRef.current.has(ticket.id)) return;
+      draftActionInFlightRef.current.add(ticket.id);
+      const epoch = sessionEpochRef.current;
       const uid = auth.user.uid;
       const setSend = (send: DraftUiState) =>
         setDraftUiStates((s) => ({ ...s, [ticket.id]: send }));
@@ -421,6 +515,7 @@ export default function App() {
           await userServices.repo.saveDraft(uid, sentRecord);
           await userServices.repo.saveTicket(sentTicket);
         });
+        if (!isCurrentSession(epoch)) return;
         if (outcome.status === 'sent') {
           setDraftsByTicket((d) => ({ ...d, [ticket.id]: sentRecord }));
           setTickets((list) => list.map((t) => (t.id === ticket.id ? sentTicket : t)));
@@ -435,15 +530,16 @@ export default function App() {
           });
         }
       } finally {
-        sendInFlightRef.current.delete(ticket.id);
+        draftActionInFlightRef.current.delete(ticket.id);
       }
     },
-    [userServices, auth.user, draftsByTicket, freshest],
+    [userServices, auth.user, draftsByTicket, freshest, isCurrentSession],
   );
 
   const handleAddManual = useCallback(
     async (subject: string, body: string) => {
       if (!userServices || !auth.user) throw new Error('Sign in first.');
+      const epoch = sessionEpochRef.current;
       // Whitespace-only input passes the form's native `required` check but
       // trims to nothing; a content-less ticket must not enter the inbox
       // (T-1.9 QA).
@@ -466,10 +562,11 @@ export default function App() {
         privacyMode: false,
       };
       await userServices.repo.saveTicket(ticket);
+      if (!isCurrentSession(epoch)) return;
       setTickets((list) => [ticket, ...list]);
       setSelectedId(ticket.id);
     },
-    [userServices, auth.user],
+    [userServices, auth.user, isCurrentSession],
   );
 
   const selectedPreview: EscalationPreview | null = useMemo(() => {
