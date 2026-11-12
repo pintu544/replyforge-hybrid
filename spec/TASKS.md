@@ -90,23 +90,29 @@
 
 *End-to-end outcome: hard tickets escalate for labelled reasons using the redacted payload only, and the 30-ticket evaluation produces the measured scorecard used in the video and write-up.*
 
-- [ ] **T-3.1 — Move routing thresholds and prompts to Remote Config**
+- [x] **T-3.1 — Move routing thresholds and prompts to Remote Config**
       Done means: escalation length, minimum confidence, keyword set version, model names, and the triage, draft, and escalation prompts are read from Remote Config; with Remote Config unavailable in testing, documented in-code defaults produce identical routing behaviour on the fixture spot checks.
+      Evidence (13 Nov 2026): src/services/appConfig.ts loads Remote Config over in-code defaults per field and never rejects; the default prompts reproduce the pre-Slice-3 prompts byte-for-byte (test-asserted); remoteconfig.template.json is generated from the code defaults with a test asserting template↔code agreement; the console publish step is documented in DESIGN.md as a Slice 4 deploy step and the app runs end-to-end on defaults.
       Unblocks: T-3.2.
-- [ ] **T-3.2 — Implement the app-level routing engine**
+- [x] **T-3.2 — Implement the app-level routing engine**
       Done means: automated tests show each trigger — length or complexity, negative sentiment, refund or legal intent, multiple issues, low confidence, and unsupported on-device language — selects escalation with the correct reason label, and a ticket with no trigger remains on the simple path.
+      Evidence (13 Nov 2026): src/services/routing.ts with 9 engine tests (one per trigger + no-trigger + priority); fixture spot check — engine fed the gold triage inputs agrees with the gold route on all 30 tickets, and on the trigger label for 28 (RF-021/RF-030 name the higher-priority of two matching triggers, documented in the test); keyword checks run on redacted text only (code + test enforced).
       Unblocks: T-3.3, T-3.4.
-- [ ] **T-3.3 — Draft escalations in the cloud from the redacted payload only**
+- [x] **T-3.3 — Draft escalations in the cloud from the redacted payload only**
       Done means: a cloud-labelled ticket produces a draft through the cloud-preferred handle after the operator confirms the previewed payload; network and code-path tests prove the escalation call receives no raw-body field; the result card shows the escalation reason, actual route, and latency.
+      Evidence (13 Nov 2026): src/services/escalation.ts + 9 tests — the payload's exact key set is asserted (no raw-body field exists), the prompt is proven free of raw personal data, blocked payloads make no call, held-for-review and minimised both require the preview confirmation, Privacy Mode refuses before any handle call, and the strict success rule holds; live: RF-021 escalated through the held-for-review confirmation to a draft with route in_cloud · 1388 ms and reason "Long or complex ticket", REST-verified (LIVE-VERIFICATION.md).
       Unblocks: T-3.4.
-- [ ] **T-3.4 — Build the repeatable 30-ticket evaluation runner**
+- [x] **T-3.4 — Build the repeatable 30-ticket evaluation runner**
       Done means: one action evaluates all 30 fixture tickets without changing their labels and produces an EvaluationRun with correct routes out of 30, accuracy, labelled redactions, and surviving labelled patterns; the run can be repeated with the same fixture version and compared with the previous run.
+      Evidence (13 Nov 2026): src/services/evaluation.ts stores EvaluationRuns per user with per-ticket results (labels/counts/reasons only); tests cover aggregation, repeatability, failure accounting, quota retry and pacing; live: run 1 measured the free-tier rate limit (17/30, preserved as the previous run), the paced run 2 recorded 28/30 (93.3%), 27 labelled redactions, 0 surviving patterns, actual split 0 on-device / 30 in cloud / 0 failed, shown with the previous-run delta (LIVE-VERIFICATION.md).
       Unblocks: T-3.5.
-- [ ] **T-3.5 — Build the scorecard**
+- [x] **T-3.5 — Build the scorecard**
       Done means: the scorecard displays percentage fully handled on-device, median latency per actual route, offline successes out of attempts, cloud calls avoided, escalation accuracy, and labelled redactions caught, each with sample size, device description, and Chrome version; every figure can be traced to route events or an EvaluationRun, and no figure is typed in by hand.
+      Evidence (13 Nov 2026): src/services/scorecard.ts is a pure computation over stored events + the latest run, proven by seeded-event tests including the honest empty states; live panel (screenshot slice3-scorecard.png): 0% on-device of 75 completed, median in-cloud 1048 ms (n=75), on-device n=0 shown as no-data, offline 0 of 3, cloud calls avoided 2, accuracy 28 of 30, redactions 27 caught / 0 surviving, device + Chrome 140.0.7339.16 recorded.
       Unblocks: Slice 4.
-- [ ] **T-3.6 — Prepare the impact evidence pack**
+- [x] **T-3.6 — Prepare the impact evidence pack**
       Done means: the Devpost impact draft states the named audience and the measured scorecard only; if Pintu supplies real pilot feedback, the person, context, and wording are recorded with permission, and if none is supplied the draft contains no testimonial or invented user claim.
+      Evidence (13 Nov 2026): submission/IMPACT.md — audience named per SPEC (small support teams / solo operators answering customer e-mail), the measured 13 Nov scorecard only, the two disagreements and the quota-limited first run explained, the redaction claim scoped to the labelled patterns, and the on-device share/latency/offline figures explicitly marked [REFRESH] for the Slice 4 on-device session; no testimonials (none supplied).
       Unblocks: T-4.4.
 - [ ] **T-3.7 — Adversarial QA for Slice 3**
       Done means: a fresh QA agent reports critical, warning, and informational findings after testing threshold boundaries, conflicting triggers, unsupported language, Remote Config failure, payload tampering, repeated evaluation runs, and scorecard arithmetic against raw route events. Every critical is fixed and re-tested; scorecard discrepancies are treated as critical.
