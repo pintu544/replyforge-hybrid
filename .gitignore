@@ -9,3 +9,6 @@ firebase-debug.log
 firestore-debug.log
 ui-debug.log
 .DS_Store
+
+# Slice 1 live-verification QA account (never commit)
+qa-test-account.txt

@@ -32,10 +32,10 @@
 - [x] **T-1.6 — Build the availability controller and hybrid status panel**
       Done means: the panel displays one of available, downloadable, downloading, or unavailable; the enable control only initialises the device model after a user gesture; download progress and failure are visible; ordinary navigation and ticket work are not blocked by any availability state.
       Unblocks: T-1.7, T-2.6.
-- [ ] **T-1.7 — Build the inbox and ticket workspace**
+- [x] **T-1.7 — Build the inbox and ticket workspace** ✅ Live-verified 12 Nov 2026: QA account signed in against the live project, fixture inbox shows "30 of 30" with no duplicates on reload, tickets open in the workspace (spec/LIVE-VERIFICATION.md; spec/evidence/).
       Done means: the operator can browse and search the 30 fixture tickets, open one ticket with its gold labels hidden from the normal workflow, and add a manual ticket by pasting a subject and message; manual and fixture tickets are visibly distinguished.
       Unblocks: T-1.8.
-- [ ] **T-1.8 — Run device-preferred structured triage**
+- [x] **T-1.8 — Run device-preferred structured triage** ✅ Live-verified 12 Nov 2026: RF-001 triage (cloud model gemini-3.5-flash-lite) rendered the full result card with route chip "In cloud · 5752 ms" (actual route `in_cloud` from the inference result); matching Firestore route event has outcome `fallback` and zero ticket text; the failed-state-with-retry path was also proven live (spec/LIVE-VERIFICATION.md; spec/evidence/09-triage-RF-001-success.png).
       Done means: selecting “Run triage” produces category, urgency, sentiment, confidence, issue count, and personal-data count; the result card shows latency and the actual route from the inference result; a matching route event exists in Firestore; a forced error ends in a visible failed state with retry.
       Unblocks: Slice 2.
 - [ ] **T-1.9 — Adversarial QA for Slice 1**
