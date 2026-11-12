@@ -201,6 +201,19 @@ describe('redacted artefact (T-2.2)', () => {
     expect(artefact.redactedSummary).toContain(ticket.subject);
   });
 
+  it('the redacted output is itself pattern-free for all 30 tickets (detector must not flag its own masks)', () => {
+    // The payload gate and the pre-draft scan both re-run the detector
+    // over redacted text; a mask token that re-matches a pattern (the
+    // quoted from/to name change over "[name masked]") would report a
+    // surviving pattern that is not personal data and block clean work.
+    for (const ticket of fixtureTickets()) {
+      const artefact = produceRedactedArtefact(ticket);
+      expect(detectPersonalData(artefact.redactedSubject), `${ticket.id} subject`).toEqual([]);
+      expect(detectPersonalData(artefact.redactedBody), `${ticket.id} body`).toEqual([]);
+      expect(detectPersonalData(artefact.redactedSummary), `${ticket.id} summary`).toEqual([]);
+    }
+  });
+
   it('keeps the summary deterministic and derived from the redacted text only', () => {
     const ticket = fixtureTickets().find((t) => t.id === 'RF-005');
     if (!ticket) throw new Error('RF-005 missing from fixture');

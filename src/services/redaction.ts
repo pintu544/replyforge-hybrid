@@ -160,6 +160,13 @@ function collectRawMatches(text: string): RawMatch[] {
   // Names — phrase-anchored forms only (see the scope note above).
   // A quoted from/to name change is ONE labelled item covering two forms.
   for (const m of text.matchAll(/from\s+"([^"]+)"\s+to\s+"([^"]+)"/g)) {
+    // Already-redacted text quotes the mask tokens themselves
+    // (from "[name masked]" to "[name masked]"): that content is masked,
+    // not a surviving name. Without this guard the detector flags its own
+    // output — the payload gate then reports a "surviving" pattern that
+    // is not personal data, and the pre-draft scan blocks clean drafts
+    // (found by the Slice 3 evaluation over fixture RF-009).
+    if (m[1].trim().startsWith('[') || m[2].trim().startsWith('[')) continue;
     matches.push({
       type: 'name',
       value: m[0],
