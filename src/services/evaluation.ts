@@ -40,6 +40,30 @@ export interface EvaluationDeps {
   deviceDescription: string;
   fixtureVersion: number;
   onProgress?: (done: number, total: number) => void;
+  /**
+   * Minimum spacing between triage calls. A batch run fires 30 calls at
+   * a rate-limited API: the Gemini Developer API free tier allows 15
+   * requests per minute for the configured model, and an unpaced burst
+   * quota-fails a third of the run (measured live, 13 Nov 2026: 12 of 30
+   * triages failed with 429s). The app passes ~4.5 s; tests pass 0.
+   */
+  paceMs?: number;
+  /** Injectable for tests; defaults to a real timer. */
+  sleep?: (ms: number) => Promise<void>;
+}
+
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+function isQuotaError(error: string): boolean {
+  return /quota|429|rate limit|too many requests/i.test(error);
+}
+
+/** The API's own suggested retry delay, when the error carries one. */
+function quotaRetryDelayMs(error: string): number {
+  const match = /retry in ([\d.]+)s/i.exec(error) ?? /"retryDelay":\s*"(\d+)s"/.exec(error);
+  const seconds = match ? Number(match[1]) : 15;
+  return Math.min(30_000, Math.max(1_000, Math.ceil(seconds * 1000) + 500));
 }
 
 export async function runEvaluation(
@@ -55,21 +79,32 @@ export async function runEvaluation(
   let inCloudCount = 0;
   let failedCount = 0;
 
+  const sleep = deps.sleep ?? defaultSleep;
+  const paceMs = deps.paceMs ?? 0;
+
   for (const [index, ticket] of fixtureTickets.entries()) {
     const gold = ticket.fixture;
     if (!gold) continue;
+    if (index > 0 && paceMs > 0) await sleep(paceMs);
     const labelledCount = gold.personalData.reduce((n, p) => n + p.count, 0);
     labelledRedactions += labelledCount;
 
-    const outcome = await runTriage(
-      {
-        adapter: deps.adapter,
-        writer: deps.writer,
-        isOnline: deps.isOnline,
-        promptTemplate: deps.promptTemplate,
-      },
-      ticket,
-    );
+    const triageDeps = {
+      adapter: deps.adapter,
+      writer: deps.writer,
+      isOnline: deps.isOnline,
+      promptTemplate: deps.promptTemplate,
+    };
+    let outcome = await runTriage(triageDeps, ticket);
+    if (outcome.status === 'failed' && isQuotaError(outcome.error)) {
+      // One retry after the API's own suggested delay: a quota failure
+      // is a property of the batch's timing, not of the ticket, and a
+      // run that reports it as a routing failure would be measuring the
+      // rate limit instead of the router. Both attempts keep their route
+      // events — attempts and outcomes stay distinguishable.
+      await sleep(quotaRetryDelayMs(outcome.error));
+      outcome = await runTriage(triageDeps, ticket);
+    }
 
     if (outcome.status === 'failed') {
       failedCount += 1;

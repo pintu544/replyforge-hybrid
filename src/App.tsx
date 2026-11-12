@@ -740,6 +740,9 @@ export default function App() {
           promptTemplate: routingConfig.triagePrompt,
           deviceDescription: DEVICE_DESCRIPTION,
           fixtureVersion: fixtureFile.fixtureVersion,
+          // The free tier allows 15 requests/minute for the configured
+          // model; pacing keeps the batch under it (see evaluation.ts).
+          paceMs: 4_500,
           onProgress: (done, total) => {
             if (isCurrentSession(epoch)) setEvalProgress({ done, total });
           },

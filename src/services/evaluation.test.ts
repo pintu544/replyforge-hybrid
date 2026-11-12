@@ -151,6 +151,75 @@ describe('evaluation runner (T-3.4)', () => {
     expect(failed.triageActualSource).toBeNull();
   });
 
+  it('retries a quota failure once after the suggested delay instead of scoring it as a routing failure', async () => {
+    // The live free tier caps requests per minute; a burst evaluation
+    // measured 12 of 30 triages quota-failed (13 Nov 2026). The first
+    // call for ticket index 5 fails with a quota error, then succeeds.
+    const inner = new GoldAdapter();
+    let calls = 0;
+    const flaky: InferenceAdapter = {
+      async generateStructured() {
+        calls += 1;
+        if (calls === 6) {
+          throw new Error(
+            'Quota exceeded for metric: generate requests per minute. Please retry in 1s',
+          );
+        }
+        return inner.generateStructured();
+      },
+      async generateText() {
+        throw new Error('unused');
+      },
+      async initialiseDeviceModel() {},
+    };
+    const sleeps: number[] = [];
+    const repo = new MemoryTicketRepository();
+    const run = await runEvaluation(
+      {
+        adapter: flaky,
+        writer: writerForRepository(repo, UID),
+        isOnline: () => true,
+        config: DEFAULT_ROUTING_CONFIG,
+        deviceDescription: 'Test machine',
+        fixtureVersion: fixtureFile.fixtureVersion,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
+      fixtureFile.tickets.map(ticketFrom),
+    );
+    expect(run.failedCount).toBe(0);
+    expect(run.correctRoutes).toBe(30);
+    // The retry waited the API's suggested delay (1s + buffer, clamped).
+    expect(sleeps).toEqual([1500]);
+    // Both attempts keep their route events: 30 successes + 1 failure.
+    const events = await repo.listRouteEvents(UID);
+    expect(events).toHaveLength(31);
+    expect(events.filter((e) => e.outcome === 'failed')).toHaveLength(1);
+  });
+
+  it('paces triage calls when paceMs is set', async () => {
+    const sleeps: number[] = [];
+    const repo = new MemoryTicketRepository();
+    await runEvaluation(
+      {
+        adapter: new GoldAdapter(),
+        writer: writerForRepository(repo, UID),
+        isOnline: () => true,
+        config: DEFAULT_ROUTING_CONFIG,
+        deviceDescription: 'Test machine',
+        fixtureVersion: fixtureFile.fixtureVersion,
+        paceMs: 10,
+        sleep: async (ms) => {
+          sleeps.push(ms);
+        },
+      },
+      fixtureFile.tickets.map(ticketFrom),
+    );
+    expect(sleeps).toHaveLength(29);
+    expect(sleeps.every((ms) => ms === 10)).toBe(true);
+  });
+
   it('records no ticket text anywhere in the run record', async () => {
     const { run } = await runWith(new GoldAdapter());
     const serialised = JSON.stringify(run);
