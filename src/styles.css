@@ -76,7 +76,7 @@ code { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-si
   margin: 0 auto;
   align-items: start;
 }
-.column { display: grid; gap: 20px; min-width: 0; }
+.column { display: grid; grid-template-columns: minmax(0, 1fr); gap: 20px; min-width: 0; }
 
 .panel {
   background: var(--surface);
@@ -163,6 +163,9 @@ textarea { resize: vertical; }
 .ticket-row-top { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
 .ticket-subject { font-size: 14px; font-weight: 500; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-row-meta { display: flex; gap: 10px; align-items: center; font-size: 12px; color: var(--ink-3); }
+/* Ticket IDs (manual-<uuid>) are unbreakable tokens: without this the meta
+   row's min-content blows the side column out over the workspace (T-1.9 QA). */
+.ticket-row-meta > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ticket-status { text-transform: capitalize; }
 .empty-note { color: var(--ink-2); font-size: 14px; }
 
