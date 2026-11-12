@@ -54,6 +54,16 @@ describe('availability controller (T-1.6)', () => {
     expect(snap.error).toBeNull();
   });
 
+  it('enable() never claims available when the probe still reports unavailable (NFR-8)', async () => {
+    // Regression (T-1.9 QA): the initialiser can resolve without the device
+    // model existing; the panel must report the probed state, not optimism.
+    const controller = new AvailabilityController(probeWith(true, 'unavailable'), async () => {});
+    await controller.enable();
+    const snap = controller.getSnapshot();
+    expect(snap.state).toBe('unavailable');
+    expect(snap.error).toContain('still unavailable');
+  });
+
   it('enable() failure is visible in the snapshot and sets unavailable', async () => {
     const controller = new AvailabilityController(probeWith(true, 'unavailable'), async () => {
       throw new Error('Download requires a user gesture.');

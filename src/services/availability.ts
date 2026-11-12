@@ -126,8 +126,12 @@ export class AvailabilityController {
       });
       const state = await probeAvailability(this.probe);
       this.setSnapshot({
-        state: state === 'unavailable' ? 'available' : state,
+        state,
         downloadProgress: null,
+        error:
+          state === 'unavailable'
+            ? 'The on-device model is still unavailable on this machine after initialisation.'
+            : null,
       });
     } catch (err) {
       this.setSnapshot({
