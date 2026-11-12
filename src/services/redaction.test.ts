@@ -224,3 +224,51 @@ describe('redacted artefact (T-2.2)', () => {
     expect(a.redactedSummary.length).toBeLessThanOrEqual(240);
   });
 });
+
+describe('mask-token-shaped inputs (T-3.7 QA, W-1)', () => {
+  // The 9c29815 guard exempted a quoted from/to name change when EITHER
+  // side merely started with "[": a real name sitting beside one mask
+  // token — or any bracketed quoted name — was not detected at all, so
+  // it survived redaction and passed the payload gate into the summary.
+  // The exemption is now per side and exact: only a quoted value that IS
+  // the mask token counts as already masked.
+  it('still detects a real name beside one mask token (from-side token)', () => {
+    const found = detectPersonalData(
+      'Please update the account from "[name masked]" to "Priya Nair" today.',
+    );
+    expect(found.map((d) => d.type)).toContain('name');
+  });
+
+  it('still detects a real name beside one mask token (to-side token)', () => {
+    const found = detectPersonalData(
+      'Please update the account from "Priya Nair" to "[name masked]" today.',
+    );
+    expect(found.map((d) => d.type)).toContain('name');
+  });
+
+  it('still detects a bracketed quoted name that is not a mask token', () => {
+    const found = detectPersonalData(
+      'Please change the name from "[Admin] John Mathew" to "Jane Doe".',
+    );
+    expect(found.map((d) => d.type)).toContain('name');
+  });
+
+  it('masks the real side of a mixed from/to and leaves the result pattern-free', () => {
+    const ticket = {
+      id: 'manual-mixed',
+      subject: 'Account name change',
+      body: 'Please update the account from "[name masked]" to "Priya Nair" effective today. The old name was wrong.',
+    } as Ticket;
+    const artefact = produceRedactedArtefact(ticket);
+    expect(artefact.redactedBody).not.toContain('Priya Nair');
+    expect(artefact.redactedSummary).not.toContain('Priya Nair');
+    expect(detectPersonalData(artefact.redactedBody)).toEqual([]);
+    expect(detectPersonalData(artefact.redactedSummary)).toEqual([]);
+  });
+
+  it('both-token from/to remains exempt — the detector does not flag its own output', () => {
+    expect(
+      detectPersonalData('Please change the name from "[name masked]" to "[name masked]".'),
+    ).toEqual([]);
+  });
+});

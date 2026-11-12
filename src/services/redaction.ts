@@ -166,14 +166,21 @@ function collectRawMatches(text: string): RawMatch[] {
     // output — the payload gate then reports a "surviving" pattern that
     // is not personal data, and the pre-draft scan blocks clean drafts
     // (found by the Slice 3 evaluation over fixture RF-009).
-    if (m[1].trim().startsWith('[') || m[2].trim().startsWith('[')) continue;
+    // The exemption is per side and exact (T-3.7 QA): only a quoted value
+    // that IS the mask token counts as already masked. The earlier guard
+    // skipped the whole match when either side merely started with "[",
+    // so a real name beside one token — or any bracketed quoted name —
+    // survived redaction entirely and passed the payload gate.
+    const fromIsToken = m[1].trim() === MASK_TOKEN.name;
+    const toIsToken = m[2].trim() === MASK_TOKEN.name;
+    if (fromIsToken && toIsToken) continue;
     matches.push({
       type: 'name',
       value: m[0],
       index: m.index,
       length: m[0].length,
-      replacement: `from "${MASK_TOKEN.name}" to "${MASK_TOKEN.name}"`,
-      maskedValue: `${maskName(m[1])} → ${maskName(m[2])}`,
+      replacement: `from "${fromIsToken ? m[1] : MASK_TOKEN.name}" to "${toIsToken ? m[2] : MASK_TOKEN.name}"`,
+      maskedValue: `${fromIsToken ? m[1] : maskName(m[1])} → ${toIsToken ? m[2] : maskName(m[2])}`,
     });
   }
   // Note: no /i flag on the name group — the name itself must be capitalised,
