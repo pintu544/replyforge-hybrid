@@ -25,7 +25,7 @@ export interface EscalationMeta {
   category: Category;
   urgency: Urgency;
   sentiment: Sentiment;
-  /** Null in Slice 2 — the routing engine assigns triggers in Slice 3. */
+  /** Assigned by the routing engine (Slice 3); null when no decision exists. */
   escalationTrigger: string | null;
   issueCount: number;
   /**
@@ -126,15 +126,21 @@ export interface EscalationPreview {
 /**
  * The one preparation path behind the "What the cloud sees" preview
  * (T-2.4): redacts the ticket on-device, then builds the payload through
- * the same builder the escalation path will use.
+ * the same builder the escalation path uses. Slice 3: the routing
+ * engine's trigger is passed in, so the previewed payload — trigger
+ * included — is the identical object the escalation consumes.
  */
-export function prepareEscalation(ticket: Ticket, triage: TriageResult): EscalationPreview {
+export function prepareEscalation(
+  ticket: Ticket,
+  triage: TriageResult,
+  escalationTrigger: string | null = null,
+): EscalationPreview {
   const artefact = produceRedactedArtefact(ticket);
   const { payload, gate } = buildEscalationPayload(artefact, {
     category: triage.category,
     urgency: triage.urgency,
     sentiment: triage.sentiment,
-    escalationTrigger: null,
+    escalationTrigger,
     issueCount: triage.issueCount,
     triagePersonalDataCount: triage.personalDataCount,
   });

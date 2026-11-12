@@ -128,7 +128,7 @@ export interface RedactedEscalation {
   category: Category;
   urgency: Urgency;
   sentiment: Sentiment;
-  /** Null in Slice 2 — the routing engine assigns triggers in Slice 3. */
+  /** Assigned by the routing engine (Slice 3); null on the simple path. */
   escalationTrigger: string | null;
   issueCount: number;
   bodyCharacterCount: number;
