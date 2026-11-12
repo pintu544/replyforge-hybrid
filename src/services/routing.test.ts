@@ -100,5 +100,11 @@ describe('routing engine (T-3.2)', () => {
     expect(decideRoute({ ...base, sentiment: 'angry', confidence: 0.3 }, config).trigger).toBe(
       'negative-sentiment',
     );
+    // Multiple issues outranks sentiment (documented priority 4 before
+    // 5) — probe-verified at T-3.7 QA; the builder's tests had not
+    // pinned this pair.
+    expect(decideRoute({ ...base, issueCount: 3, sentiment: 'angry' }, config).trigger).toBe(
+      'multiple-issues',
+    );
   });
 });
