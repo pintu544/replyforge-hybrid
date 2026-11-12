@@ -491,7 +491,7 @@ export default function App() {
           <span className="brand-mark" aria-hidden="true">RF</span>
           <div>
             <p className="brand-name">ReplyForge Hybrid</p>
-            <p className="brand-line">On-device first. The cloud sees a redacted summary, never the raw ticket.</p>
+            <p className="brand-line">On-device first. Drafts and escalations are built only from the redacted summary. Triage may run in the cloud — when it does, the ticket text goes to Firebase AI Logic.</p>
           </div>
         </div>
         <div className="header-user">
@@ -580,9 +580,12 @@ export default function App() {
                 Sign in to open the seeded support inbox. Triage runs device-preferred through
                 Firebase AI Logic: short classification work tries Gemini Nano on this machine
                 first, and the result card always shows the route that actually ran, with its
-                latency. Personal data is redacted on-device before anything else happens,
+                latency. Triage classifies the ticket itself, so on a machine with no on-device
+                model it runs in the cloud and the ticket text goes to Firebase AI Logic.
+                Redaction is a separate step: deterministic pattern checks run on this device,
                 drafts are written from the redacted text only, and the “What the cloud sees”
-                preview shows the exact payload a cloud escalation would send.
+                preview shows the exact payload a cloud escalation would send — an escalation
+                never carries the raw ticket.
               </p>
               <p>
                 Every AI attempt writes a route event that contains no ticket text — only the

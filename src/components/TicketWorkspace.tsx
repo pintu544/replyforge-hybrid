@@ -260,7 +260,7 @@ export function TicketWorkspace({
             )}
             <div className="compare-grid">
               <div>
-                <h4>Original — stays on this device</h4>
+                <h4>Original — unredacted</h4>
                 <p className="compare-subject">{ticket.subject}</p>
                 <p className="compare-body">{ticket.body}</p>
               </div>
@@ -307,8 +307,10 @@ export function TicketWorkspace({
               <div><dt>Redaction count</dt><dd className="num">{preview.payload.redactionCount}</dd></div>
             </dl>
             <p className="triage-note">
-              This is the complete payload. The raw ticket never leaves the device; an escalation
-              (Slice 3) sends exactly this object and nothing else.
+              This is the complete escalation payload, built from the redacted summary only: an
+              escalation (Slice 3) sends exactly this object and nothing else. It is not the whole
+              cloud picture — triage itself may have run in the cloud on the ticket text; the
+              route chip on the triage card shows which route actually ran.
             </p>
           </div>
         )}
@@ -411,7 +413,7 @@ export function TicketWorkspace({
 
             {draft.state === 'sent-simulated' ? (
               <p className="sent-note" role="status">
-                Sent (simulated). No message left this device — the send is recorded locally only.
+                Sent (simulated). Nothing was sent to the customer — the send is recorded in your own workspace only.
               </p>
             ) : draftUi.kind === 'ready' ? (
               <>
