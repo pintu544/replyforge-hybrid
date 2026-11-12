@@ -120,6 +120,7 @@
       Unblocks: T-3.8.
 - [ ] **T-3.8 — Pintu confirmation gate for Slice 3**
       Done means: Pintu reviews one simple route, one escalation with its payload preview, the evaluation result, and the scorecard using supplied steps and confirms the slice, or corrections are completed first.
+      Prep (13 Nov 2026): the review steps are Part A of spec/RUNBOOK-ONDEVICE.md, folded into the joint on-device session on Pintu's machine (his Slice 4 proof machine) so the gate is reviewed once, on the real figures. The two QA judgement calls (evaluation-refusal event convention; accuracy as the 27–28 band) are explicit checkpoints in that part.
       Unblocks: Slice 4.
 
 ## Slice 4 — Product polish, demonstration, and submission
@@ -131,9 +132,11 @@
       Unblocks: T-4.3.
 - [ ] **T-4.2 — Create the routing diagram and repository package**
       Done means: a public repository contains the source, Apache licence, run and test instructions, the one-view routing diagram at the top of the README, a “Hybrid routing” section naming the code entry points, and a secrets scan showing no production keys, live Google Cloud secrets, confidential data, or personal data. The code demonstrably imports and calls Firebase AI Logic at runtime.
+      Prep (13 Nov 2026, local only — no push, no repository created): Apache-2.0 LICENSE at the repo root (canonical text, Copyright 2026 Pintu Kumar) and a README.md draft covering the product, Firebase AI Logic usage, the hybrid routing design with entry points, run/test instructions, and the measured scorecard with accuracy as the 27–28 of 30 band; its routing view is the DESIGN.md one-view diagram in text form. Remaining for this task: create the public repository and push (Pintu's word), render the one-view routing graphic, and run the pre-publish secrets scan.
       Unblocks: T-4.4.
 - [ ] **T-4.3 — Deploy and test the hosted demonstration**
       Done means: the Firebase Hosting URL loads over HTTPS; a full simple, privacy, and escalation flow passes on a machine with the device route available; the same ordinary flows pass by cloud fallback on an environment without the device route; testing instructions state the Chrome, hardware, App Check, and first-download requirements.
+      Prep (13 Nov 2026, local side complete): firebase.json Hosting config verified (public dist, SPA rewrite), .firebaserc created selecting project replyforge-hybrid, npm run build produces the deployable bundle, 114/114 tests green. NOT done: the deploy itself — firebase-tools is not installed on the build VM and no Firebase CLI login exists, so no deploy was attempted; the exact deploy sequence, the Remote Config console publish steps, a pre-session hosted smoke test, and the joint-session steps are in spec/RUNBOOK-ONDEVICE.md. Flag: the production build does not yet initialise App Check (dev-only debug path in src/lib/firebase.ts) while console enforcement for AI Logic is “Basic — Enforced” — the smoke test in the runbook decides whether the reCAPTCHA v3 registration step is needed before the joint session.
       Unblocks: T-4.5.
 - [ ] **T-4.4 — Write the Devpost submission draft and gallery**
       Done means: the draft selects Web (Chrome), explains how Firebase AI Logic is used, summarises features and value, leads with the redaction claim, uses only measured scorecard figures, and orders the gallery as routing diagram, on-device proof, payload preview, and scorecard. Repository, hosted demonstration, and licence links all resolve.
