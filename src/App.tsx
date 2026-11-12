@@ -43,7 +43,8 @@ import {
 const fixtureFile = fixtureFileJson as FixtureFile;
 
 /** Recorded on each EvaluationRun so its figures carry their provenance. */
-const DEVICE_DESCRIPTION = 'The operator’s machine, in this browser session';
+const DEVICE_DESCRIPTION =
+  'Reference measurement machine — Ubuntu 24.04.4 LTS · Chrome 155.0.8059.39 · 23 GiB RAM · Intel Xeon 4 cores / 8 threads · no GPU';
 
 interface UserServices {
   repo: TicketRepository;

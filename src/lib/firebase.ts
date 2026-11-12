@@ -3,7 +3,7 @@ import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
 import { initializeAppCheck, CustomProvider, type AppCheck } from 'firebase/app-check';
 import { getAI, GoogleAIBackend, type AI } from 'firebase/ai';
-import { firebaseConfig, isFirebaseConfigured, appCheckDebugToken } from './env';
+import { firebaseConfig, isFirebaseConfigured, appCheckDebugToken, appCheckDebugBuild } from './env';
 
 export interface FirebaseServices {
   app: FirebaseApp;
@@ -39,7 +39,7 @@ export function getFirebaseServices(): FirebaseServices | null {
   // Manage debug tokens) before AI Logic calls succeed. A production
   // reCAPTCHA v3 / Fraud Defense registration replaces this in a later slice.
   let appCheck: AppCheck | undefined;
-  if (import.meta.env.DEV) {
+  if (import.meta.env.DEV || appCheckDebugBuild) {
     const self_ = globalThis as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | boolean };
     self_.FIREBASE_APPCHECK_DEBUG_TOKEN = appCheckDebugToken ?? true;
     appCheck = initializeAppCheck(app, {

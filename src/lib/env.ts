@@ -32,4 +32,13 @@ export const isFirebaseConfigured: boolean =
 export const appCheckDebugToken: string | undefined =
   env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN || undefined;
 
+/**
+ * True only for the explicitly flagged hosted-demo build
+ * (VITE_APPCHECK_DEBUG_BUILD=true at build time). That build initialises
+ * App Check through the registered debug token — the path the hackathon
+ * rules accept — until the production reCAPTCHA v3 registration replaces
+ * it. Ordinary production builds leave this off.
+ */
+export const appCheckDebugBuild: boolean = env.VITE_APPCHECK_DEBUG_BUILD === 'true';
+
 export const cloudModelName: string = env.VITE_CLOUD_MODEL || 'gemini-3.5-flash-lite';
