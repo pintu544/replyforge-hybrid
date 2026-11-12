@@ -1,0 +1,56 @@
+{
+  "parameters": {
+    "escalation_length_chars": {
+      "defaultValue": {
+        "value": "400"
+      },
+      "description": "Redacted-body character count above which a ticket escalates (routing engine)."
+    },
+    "escalation_confidence_min": {
+      "defaultValue": {
+        "value": "0.6"
+      },
+      "description": "Triage confidence below which a ticket escalates (0..1)."
+    },
+    "escalation_keywords_version": {
+      "defaultValue": {
+        "value": "v1"
+      },
+      "description": "Version of the refund/legal keyword set used by the routing engine."
+    },
+    "device_model_name": {
+      "defaultValue": {
+        "value": "gemini-nano"
+      },
+      "description": "Informational name of the on-device model (Gemini Nano)."
+    },
+    "cloud_model_name": {
+      "defaultValue": {
+        "value": "gemini-3.5-flash-lite"
+      },
+      "description": "Cloud model used by Firebase AI Logic for in-cloud inference."
+    },
+    "triage_prompt": {
+      "defaultValue": {
+        "value": "You are the triage step of a customer-support inbox.\nClassify the ticket below and reply with JSON only, matching the schema exactly.\ncategory: billing, delivery, account, product, returns, technical, or other.\nurgency: low, normal, high, or urgent.\nsentiment: positive, neutral, negative, or angry.\nconfidence: your confidence in this classification, from 0 to 1.\nissueCount: the number of distinct problems the customer raises (at least 1).\npersonalDataCount: how many items of personal data appear (names, e-mail addresses, telephone numbers, postal addresses, order identifiers, payment references). Count items, not types.\n\nSubject: {{subject}}\nMessage:\n{{body}}"
+      },
+      "description": "Triage prompt template ({{subject}}, {{body}})."
+    },
+    "draft_prompt": {
+      "defaultValue": {
+        "value": "You are drafting a customer-support reply. Write a short, polite, helpful reply to the ticket below.\nReply with the reply text only — no subject line, no placeholders, no commentary.\nThe ticket text has already been privacy-redacted on the customer's device; bracketed \"[… masked]\" notes mark where personal data was removed. Do not invent the removed details.\n{{triageLine}}\n\nSubject: {{subject}}\nMessage:\n{{body}}"
+      },
+      "description": "Simple-draft prompt template ({{triageLine}}, {{subject}}, {{body}})."
+    },
+    "escalation_prompt": {
+      "defaultValue": {
+        "value": "You are the escalation drafter of a customer-support inbox. A human operator has reviewed the privacy-redacted summary below and confirmed this escalation.\nWrite a careful, complete reply the operator can send: acknowledge the problem, address every issue the customer raised, say exactly what will happen next, and stay courteous even where the customer is angry.\nReply with the reply text only — no subject line, no placeholders, no commentary.\nThe summary was redacted on the customer's device before it reached the cloud; bracketed \"[… masked]\" notes mark removed personal data. Never invent the removed details, and do not ask the customer to repeat information that was redacted.\nEscalation reason: {{triggerLabel}}.\nCategory: {{category}}. Urgency: {{urgency}}. Sentiment: {{sentiment}}. Issues raised: {{issueCount}}.\n\nRedacted summary:\n{{summary}}"
+      },
+      "description": "Escalation-draft prompt template ({{triggerLabel}}, {{category}}, {{urgency}}, {{sentiment}}, {{issueCount}}, {{summary}})."
+    }
+  },
+  "version": {
+    "versionNumber": "1",
+    "description": "ReplyForge Hybrid routing configuration. Publish this template in Firebase Console → Remote Config; the app falls back to identical in-code defaults when Remote Config cannot be fetched."
+  }
+}

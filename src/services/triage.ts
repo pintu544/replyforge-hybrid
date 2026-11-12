@@ -7,6 +7,7 @@ import type {
   Urgency,
 } from '../lib/types';
 import type { InferenceAdapter } from './inference';
+import { DEFAULT_TRIAGE_PROMPT, renderPrompt } from './prompts';
 import {
   DEFAULT_RECORD_TIMEOUT_MS,
   recordRouteEventBounded,
@@ -19,21 +20,13 @@ import {
  * call succeeds but reports no route, the task is shown as failed, not guessed.
  */
 
-export function buildTriagePrompt(ticket: Ticket): string {
-  return [
-    'You are the triage step of a customer-support inbox.',
-    'Classify the ticket below and reply with JSON only, matching the schema exactly.',
-    'category: billing, delivery, account, product, returns, technical, or other.',
-    'urgency: low, normal, high, or urgent.',
-    'sentiment: positive, neutral, negative, or angry.',
-    'confidence: your confidence in this classification, from 0 to 1.',
-    'issueCount: the number of distinct problems the customer raises (at least 1).',
-    'personalDataCount: how many items of personal data appear (names, e-mail addresses, telephone numbers, postal addresses, order identifiers, payment references). Count items, not types.',
-    '',
-    `Subject: ${ticket.subject}`,
-    'Message:',
-    ticket.body,
-  ].join('\n');
+/**
+ * Renders the triage prompt from a template (Slice 3: the template comes
+ * from Remote Config, with DEFAULT_TRIAGE_PROMPT as the in-code default —
+ * rendering the default reproduces the pre-Slice-3 prompt byte for byte).
+ */
+export function buildTriagePrompt(ticket: Ticket, template: string = DEFAULT_TRIAGE_PROMPT): string {
+  return renderPrompt(template, { subject: ticket.subject, body: ticket.body });
 }
 
 const CATEGORIES: Category[] = ['billing', 'delivery', 'account', 'product', 'returns', 'technical', 'other'];
@@ -102,6 +95,8 @@ export interface TriageDeps {
    * the device-only adapter.
    */
   requestedMode?: RequestedMode;
+  /** Prompt template (Remote Config, Slice 3); defaults to the in-code template. */
+  promptTemplate?: string;
   /**
    * Bound on awaiting the FAILURE-path route-event write; see
    * recordRouteEventBounded. The success path is not bounded: it awaits its
@@ -126,7 +121,9 @@ export async function runTriage(deps: TriageDeps, ticket: Ticket): Promise<Triag
   const requestedMode = deps.requestedMode ?? 'prefer_on_device';
   const started = performance.now();
   try {
-    const result = await deps.adapter.generateStructured(buildTriagePrompt(ticket));
+    const result = await deps.adapter.generateStructured(
+      buildTriagePrompt(ticket, deps.promptTemplate ?? DEFAULT_TRIAGE_PROMPT),
+    );
     const latencyMs = Math.round(performance.now() - started);
     if (!result.inferenceSource) {
       throw new Error('The inference result did not report which route ran, so the task is recorded as failed rather than guessed (SPEC NFR-2).');

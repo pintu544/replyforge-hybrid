@@ -5,6 +5,7 @@ import type {
   Ticket,
 } from '../lib/types';
 import type { InferenceAdapter } from './inference';
+import { DEFAULT_DRAFT_PROMPT, renderPrompt } from './prompts';
 import { detectPersonalData } from './redaction';
 import {
   DEFAULT_RECORD_TIMEOUT_MS,
@@ -20,19 +21,25 @@ import {
  * the strict success rule from the T-1.10 gate.
  */
 
-export function buildDraftPrompt(artefact: RedactedArtefact, ticket: Ticket): string {
-  return [
-    'You are drafting a customer-support reply. Write a short, polite, helpful reply to the ticket below.',
-    'Reply with the reply text only — no subject line, no placeholders, no commentary.',
-    'The ticket text has already been privacy-redacted on the customer\'s device; bracketed "[… masked]" notes mark where personal data was removed. Do not invent the removed details.',
-    ticket.triage
-      ? `Triage: category ${ticket.triage.category}, urgency ${ticket.triage.urgency}, sentiment ${ticket.triage.sentiment}.`
-      : 'Triage has not been run for this ticket.',
-    '',
-    `Subject: ${artefact.redactedSubject}`,
-    'Message:',
-    artefact.redactedBody,
-  ].join('\n');
+/**
+ * Renders the draft prompt from a template (Slice 3: Remote Config, with
+ * DEFAULT_DRAFT_PROMPT as the in-code default — rendering the default
+ * reproduces the pre-Slice-3 prompt byte for byte). The content still
+ * comes from the redacted artefact only.
+ */
+export function buildDraftPrompt(
+  artefact: RedactedArtefact,
+  ticket: Ticket,
+  template: string = DEFAULT_DRAFT_PROMPT,
+): string {
+  const triageLine = ticket.triage
+    ? `Triage: category ${ticket.triage.category}, urgency ${ticket.triage.urgency}, sentiment ${ticket.triage.sentiment}.`
+    : 'Triage has not been run for this ticket.';
+  return renderPrompt(template, {
+    triageLine,
+    subject: artefact.redactedSubject,
+    body: artefact.redactedBody,
+  });
 }
 
 export interface DraftResult {
@@ -54,6 +61,8 @@ export interface DraftDeps {
   isOnline: () => boolean;
   /** Handle the caller selected (Slice 2 task routing); default device-preferred. */
   requestedMode?: RequestedMode;
+  /** Prompt template (Remote Config, Slice 3); defaults to the in-code template. */
+  promptTemplate?: string;
   /** Bound for the FAILURE-path event write only (see recordRouteEventBounded). */
   recordTimeoutMs?: number;
   /**
@@ -90,7 +99,9 @@ export async function runDraft(
         `Drafting was blocked: ${surviving.length} labelled personal-data pattern(s) survived redaction (${survivingTypes}). Re-run redaction on this ticket; if it persists, edit the ticket text before drafting.`,
       );
     }
-    const result = await deps.adapter.generateText(buildDraftPrompt(artefact, ticket));
+    const result = await deps.adapter.generateText(
+      buildDraftPrompt(artefact, ticket, deps.promptTemplate ?? DEFAULT_DRAFT_PROMPT),
+    );
     const latencyMs = Math.round(performance.now() - started);
     if (!result.inferenceSource) {
       throw new Error('The draft result did not report which route ran, so it is recorded as failed rather than guessed (SPEC NFR-2).');
