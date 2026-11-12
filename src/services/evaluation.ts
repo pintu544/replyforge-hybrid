@@ -2,6 +2,7 @@ import { currentBrowserInfo } from '../lib/browserInfo';
 import type {
   EvaluationRun,
   EvaluationTicketResult,
+  RequestedMode,
   Ticket,
 } from '../lib/types';
 import type { RoutingConfig } from './appConfig';
@@ -36,6 +37,15 @@ export interface EvaluationDeps {
   config: RoutingConfig;
   /** Triage prompt template (Remote Config); defaults inside runTriage. */
   promptTemplate?: string;
+  /**
+   * Which handle the caller selected for the run's triages (Slice 2 task
+   * routing, applied to the batch by T-3.7 QA). Defaults to
+   * 'prefer_on_device'; Privacy Mode passes 'only_on_device' together
+   * with the device-only adapter, and runTriage then discards any result
+   * that reports a cloud route — an evaluation under Privacy Mode can
+   * never be served by the cloud.
+   */
+  requestedMode?: RequestedMode;
   /** Human description of the machine/browser the run measured on. */
   deviceDescription: string;
   fixtureVersion: number;
@@ -94,6 +104,7 @@ export async function runEvaluation(
       writer: deps.writer,
       isOnline: deps.isOnline,
       promptTemplate: deps.promptTemplate,
+      requestedMode: deps.requestedMode,
     };
     let outcome = await runTriage(triageDeps, ticket);
     if (outcome.status === 'failed' && isQuotaError(outcome.error)) {
@@ -108,6 +119,16 @@ export async function runEvaluation(
 
     if (outcome.status === 'failed') {
       failedCount += 1;
+      // Redaction is deterministic local code: it does not depend on the
+      // triage that just failed, so the run's redaction figures still
+      // cover this ticket (T-3.7 QA — previously the failed branch
+      // recorded zeroes and the run's redaction totals silently skipped
+      // every triage failure, overstating nothing but measuring less
+      // than the panel claims). The surviving-pattern scan is the same
+      // one the payload gate performs, over the payload's summary.
+      const artefact = produceRedactedArtefact(ticket);
+      const surviving = detectPersonalData(artefact.redactedSummary).length;
+      survivingLabelledPatterns += surviving;
       results.push({
         ticketId: ticket.id,
         expectedRoute: gold.expectedRoute,
@@ -115,9 +136,9 @@ export async function runEvaluation(
         trigger: null,
         correct: false,
         triageActualSource: null,
-        redactionCount: 0,
+        redactionCount: artefact.redactionCount,
         labelledCount,
-        survivingPatterns: 0,
+        survivingPatterns: surviving,
       });
     } else {
       const triage = outcome.triage;

@@ -86,7 +86,7 @@ export function TicketWorkspace({
   preview: EscalationPreview | null;
   decision: RoutingDecision | null;
   escalationUi: EscalationUiState;
-  onEscalate: (ticket: Ticket, confirmedByOperator: boolean) => void;
+  onEscalate: (ticket: Ticket, preview: EscalationPreview, confirmedByOperator: boolean) => void;
   draft: Draft | null;
   draftUi: DraftUiState;
   onDraft: (ticket: Ticket) => void;
@@ -382,7 +382,7 @@ export function TicketWorkspace({
                 type="button"
                 className="button button--primary"
                 disabled={escalationBusy || draftUi.kind === 'running' || draftUi.kind === 'awaiting-sync'}
-                onClick={() => onEscalate(ticket, true)}
+                onClick={() => onEscalate(ticket, preview, true)}
               >
                 {escalationUi.kind === 'running'
                   ? 'Escalating…'

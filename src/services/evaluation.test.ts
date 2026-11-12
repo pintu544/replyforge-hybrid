@@ -227,4 +227,42 @@ describe('evaluation runner (T-3.4)', () => {
       expect(serialised).not.toContain(needle);
     }
   });
+
+  it('still measures redaction for a ticket whose triage failed (T-3.7 QA, W-3)', async () => {
+    // Redaction is local and deterministic — it does not depend on the
+    // failed triage. Before the fix the failed branch recorded zeroes,
+    // so a run's redaction figures silently covered fewer tickets than
+    // the panel claims.
+    const { run } = await runWith(new GoldAdapter(2));
+    const failed = run.results[2];
+    expect(failed.triageActualSource).toBeNull();
+    expect(failed.labelledCount).toBeGreaterThan(0);
+    expect(failed.redactionCount).toBe(failed.labelledCount);
+    expect(failed.survivingPatterns).toBe(0);
+  });
+
+  it('a device-only run discards cloud results instead of counting them (T-3.7 QA, C-1)', async () => {
+    // The wiring Privacy Mode uses: the device-only requested mode makes
+    // runTriage discard any result that reports a cloud route, so an
+    // evaluation under Privacy Mode on a machine without the device
+    // model records honest failures — never cloud successes.
+    const repo = new MemoryTicketRepository();
+    const run = await runEvaluation(
+      {
+        adapter: new GoldAdapter(),
+        writer: writerForRepository(repo, UID),
+        isOnline: () => true,
+        config: DEFAULT_ROUTING_CONFIG,
+        deviceDescription: 'Test machine',
+        fixtureVersion: fixtureFile.fixtureVersion,
+        requestedMode: 'only_on_device',
+      },
+      fixtureFile.tickets.map(ticketFrom),
+    );
+    expect(run.failedCount).toBe(30);
+    expect(run.inCloudCount).toBe(0);
+    expect(run.onDeviceCount).toBe(0);
+    expect(run.correctRoutes).toBe(0);
+    expect(run.results.every((r) => r.triageActualSource === null)).toBe(true);
+  });
 });

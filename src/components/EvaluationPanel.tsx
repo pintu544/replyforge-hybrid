@@ -8,10 +8,13 @@ import type { EvaluationRun } from '../lib/types';
 export function EvaluationPanel({
   runs,
   progress,
+  refusal,
   onRun,
 }: {
   runs: EvaluationRun[];
   progress: { done: number; total: number } | null;
+  /** A Privacy Mode refusal of the whole run (FR-8), when one happened. */
+  refusal: { reason: string; alternative: string } | null;
   onRun: () => void;
 }) {
   const latest = runs[0] ?? null;
@@ -42,6 +45,15 @@ export function EvaluationPanel({
           ? `Evaluating… ${progress.done} of ${progress.total}`
           : 'Run evaluation over all 30 tickets'}
       </button>
+
+      {refusal && (
+        <div className="triage-result triage-result--failed" role="alert">
+          <p className="triage-failed-title">Refused — Privacy Mode</p>
+          <p>{refusal.reason}</p>
+          <p>{refusal.alternative}</p>
+          <p className="num">An evaluation is 30 triage tasks, so Privacy Mode governs it like any other task. No model call was made and no run was recorded.</p>
+        </div>
+      )}
 
       {latest && (
         <div className="run-summary">

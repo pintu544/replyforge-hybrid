@@ -87,6 +87,7 @@ vi.mock('./services/inference', async (importOriginal) => {
     ...orig,
     FirebaseDevicePreferredAdapter: FakeAdapter,
     FirebaseDeviceOnlyAdapter: FakeAdapter,
+    FirebaseCloudPreferredAdapter: FakeAdapter,
   };
 });
 
@@ -348,5 +349,66 @@ describe('App session-state integrity (T-2.8 W-2)', () => {
       'manual draft replaces the sent record and reverts the ticket',
     );
     expect(pageText()).toContain('Send (simulated)');
+  });
+});
+
+describe('App Slice 3 invariants (T-3.7 QA)', () => {
+  it('(C-1) Privacy Mode refuses the evaluation before any model call', async () => {
+    await signInAs(USER_A);
+    const toggle = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (!toggle) throw new Error('Privacy Mode toggle not found');
+    click(toggle);
+    await flush();
+
+    click(buttonByText('Run evaluation over all 30 tickets'));
+    await waitFor(
+      () => pageText().includes('No model call was made and no run was recorded'),
+      'evaluation refusal in the panel',
+    );
+    // The refusal is total: not one triage ran, and nothing was stored.
+    expect(h.structuredCalls).toBe(0);
+    expect(pageText()).toContain('No evaluation run yet in this account.');
+  });
+
+  it('(W-2) confirming the preview escalates with that payload and stores the escalation draft', async () => {
+    h.structuredImpl = () =>
+      Promise.resolve({
+        text: JSON.stringify({
+          category: 'delivery',
+          urgency: 'high',
+          sentiment: 'angry',
+          confidence: 0.92,
+          issueCount: 1,
+          personalDataCount: 0,
+        }),
+        inferenceSource: 'in_cloud' as const,
+      });
+    h.textImpl = () =>
+      Promise.resolve({ text: 'Escalation draft text.', inferenceSource: 'in_cloud' as const });
+    await signInAs(USER_A);
+    click(buttonByText('Run triage'));
+    await waitFor(() => pageText().includes('Run triage again'), 'triage completed');
+    click(buttonByText('Redact personal data'));
+    await waitFor(() => pageText().includes('Redaction count:'), 'redaction shown');
+
+    click(buttonByText('Confirm payload and escalate'));
+    await waitFor(
+      () => pageText().includes('Escalation reason: Negative sentiment'),
+      'escalation result card',
+    );
+    expect(h.textCalls).toBe(1);
+    // The stored draft is the escalation draft for the selected ticket.
+    let stored: Draft[] = [];
+    for (const repo of h.repos) {
+      stored = [...stored, ...(await repo.listDrafts(USER_A.uid))];
+    }
+    const escalationDraft = stored.find((d) => d.escalationReason !== null);
+    expect(escalationDraft).toMatchObject({
+      text: 'Escalation draft text.',
+      requestedMode: 'prefer_in_cloud',
+      actualSource: 'in_cloud',
+      escalationReason: 'Negative sentiment',
+      state: 'draft',
+    });
   });
 });

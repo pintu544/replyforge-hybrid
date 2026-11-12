@@ -69,6 +69,7 @@ export default function App() {
   const [routeEvents, setRouteEvents] = useState<RouteEvent[]>([]);
   const [evaluationRuns, setEvaluationRuns] = useState<EvaluationRun[]>([]);
   const [evalProgress, setEvalProgress] = useState<{ done: number; total: number } | null>(null);
+  const [evalRefusal, setEvalRefusal] = useState<{ reason: string; alternative: string } | null>(null);
   const [routingConfig, setRoutingConfig] = useState<RoutingConfig>(DEFAULT_ROUTING_CONFIG);
 
   // Routing configuration (Slice 3, T-3.1): Remote Config values merge
@@ -192,6 +193,7 @@ export default function App() {
       setRouteEvents([]);
       setEvaluationRuns([]);
       setEvalProgress(null);
+      setEvalRefusal(null);
       setPrivacyMode(false);
       setInboxMessage(null);
       setInboxError(null);
@@ -602,7 +604,7 @@ export default function App() {
   );
 
   const handleEscalate = useCallback(
-    async (ticket: Ticket, confirmedByOperator: boolean) => {
+    async (ticket: Ticket, preview: EscalationPreview, confirmedByOperator: boolean) => {
       if (!userServices || !auth.user) return;
       // Escalation is part of the ticket's draft lifecycle: the shared
       // in-flight guard keeps it from overlapping a draft or a send.
@@ -611,26 +613,13 @@ export default function App() {
       const epoch = sessionEpochRef.current;
       try {
         const current = freshest(ticket);
-        const triage = current.triage;
-        if (!triage) return;
-        // Rebuild the preview through the same single preparation path,
-        // from the freshest ticket and the current routing decision, so
-        // the payload the operator confirmed is the identical object the
-        // escalation consumes (T-3.3) — it is never rebuilt differently
-        // downstream.
-        const artefact = redactions[ticket.id] ?? produceRedactedArtefact(current);
-        const decision = decideRoute(
-          {
-            sentiment: triage.sentiment,
-            confidence: triage.confidence,
-            issueCount: triage.issueCount,
-            language: current.language,
-            redactedText: `${artefact.redactedSubject}\n${artefact.redactedBody}`,
-            redactedBodyChars: artefact.redactedBody.length,
-          },
-          routingConfig,
-        );
-        const preview = prepareEscalation(current, triage, decision.trigger);
+        if (!current.triage) return;
+        // The escalation consumes the very BuiltEscalation object the
+        // workspace preview rendered and the operator confirmed — it is
+        // passed in, never rebuilt here (DESIGN.md, Slice 3 note; the
+        // rebuild-by-construction this replaced was T-3.7 QA finding
+        // W-2: identical only as long as every rebuild input happened
+        // to match what was on screen).
         setEscalationUiStates((s) => ({ ...s, [ticket.id]: { kind: 'running' } }));
         const outcome = await runEscalation(
           {
@@ -713,7 +702,6 @@ export default function App() {
       userServices,
       auth.user,
       privacyMode,
-      redactions,
       routingConfig,
       freshest,
       isCurrentSession,
@@ -727,17 +715,37 @@ export default function App() {
   const handleRunEvaluation = useCallback(async () => {
     if (!userServices || !auth.user) return;
     if (evalInFlightRef.current) return;
+    const adapters = taskAdapters();
+    if (!adapters) return;
+    // The evaluation performs AI processing (30 triages), so it goes
+    // through the same task routing as every other task (T-3.7 QA,
+    // Critical C-1): under Privacy Mode with no device route it is
+    // REFUSED before any model call — previously it silently used the
+    // device-preferred handle and all 30 triages fell back to the
+    // cloud, falsifying Privacy Mode's promise. With a device route it
+    // runs device-only, and runTriage discards any cloud result.
+    const resolution = resolveTaskRoute({
+      privacyMode,
+      availability: deviceAvailabilityNow(),
+      adapters,
+    });
+    if (resolution.kind === 'refused') {
+      setEvalRefusal({ reason: resolution.reason, alternative: resolution.alternative });
+      return;
+    }
+    setEvalRefusal(null);
     evalInFlightRef.current = true;
     const epoch = sessionEpochRef.current;
     setEvalProgress({ done: 0, total: fixtureFile.tickets.length });
     try {
       const run = await runEvaluation(
         {
-          adapter: userServices.adapter,
+          adapter: resolution.adapter,
           writer: userServices.writer,
           isOnline: () => navigator.onLine,
           config: routingConfig,
           promptTemplate: routingConfig.triagePrompt,
+          requestedMode: resolution.requestedMode,
           deviceDescription: DEVICE_DESCRIPTION,
           fixtureVersion: fixtureFile.fixtureVersion,
           // The free tier allows 15 requests/minute for the configured
@@ -761,7 +769,7 @@ export default function App() {
       evalInFlightRef.current = false;
       if (isCurrentSession(epoch)) setEvalProgress(null);
     }
-  }, [userServices, auth.user, routingConfig, isCurrentSession]);
+  }, [userServices, auth.user, routingConfig, isCurrentSession, taskAdapters, privacyMode, deviceAvailabilityNow]);
 
   const handleAddManual = useCallback(
     async (subject: string, body: string) => {
@@ -914,7 +922,7 @@ export default function App() {
                 escalationUi={
                   selected ? (escalationUiStates[selected.id] ?? { kind: 'idle' }) : { kind: 'idle' }
                 }
-                onEscalate={(t, confirmed) => void handleEscalate(t, confirmed)}
+                onEscalate={(t, preview, confirmed) => void handleEscalate(t, preview, confirmed)}
                 draft={selected ? (draftsByTicket[selected.id] ?? null) : null}
                 draftUi={selectedDraftUi}
                 onDraft={(t) => void handleDraft(t)}
@@ -927,6 +935,7 @@ export default function App() {
               <EvaluationPanel
                 runs={evaluationRuns}
                 progress={evalProgress}
+                refusal={evalRefusal}
                 onRun={() => void handleRunEvaluation()}
               />
               <ScorecardPanel events={routeEvents} runs={evaluationRuns} />
