@@ -132,6 +132,20 @@ export default function App() {
 
   const selected = tickets.find((t) => t.id === selectedId) ?? tickets[0] ?? null;
 
+  // Handlers receive the ticket as rendered at click time, which can lag a
+  // just-completed update (e.g. Redact clicked, then Triage a moment later:
+  // the triage save would spread the pre-redaction snapshot and silently
+  // revert redactionCount/redactedSummary in Firestore — caught in the
+  // Slice 2 live pass). Persistence spreads the freshest known ticket.
+  const ticketsRef = useRef<Ticket[]>([]);
+  useEffect(() => {
+    ticketsRef.current = tickets;
+  }, [tickets]);
+  const freshest = useCallback(
+    (ticket: Ticket) => ticketsRef.current.find((t) => t.id === ticket.id) ?? ticket,
+    [],
+  );
+
   const triageInFlightRef = useRef<Set<string>>(new Set());
 
   const taskAdapters = useCallback((): TaskAdapters | null => {
@@ -193,7 +207,7 @@ export default function App() {
         );
         if (outcome.status === 'success') {
           const updated: Ticket = {
-            ...ticket,
+            ...freshest(ticket),
             triage: outcome.triage,
             status: 'triaged',
             privacyMode,
@@ -214,7 +228,7 @@ export default function App() {
         triageInFlightRef.current.delete(ticket.id);
       }
     },
-    [userServices, taskAdapters, deviceAvailabilityNow, privacyMode],
+    [userServices, taskAdapters, deviceAvailabilityNow, privacyMode, freshest],
   );
 
   const handleRedact = useCallback(
@@ -224,7 +238,7 @@ export default function App() {
       const artefact = produceRedactedArtefact(ticket);
       setRedactions((r) => ({ ...r, [ticket.id]: artefact }));
       const updated: Ticket = {
-        ...ticket,
+        ...freshest(ticket),
         redactedSummary: artefact.redactedSummary,
         redactionCount: artefact.redactionCount,
         privacyMode,
@@ -237,7 +251,7 @@ export default function App() {
         // fields could not be persisted.
       }
     },
-    [userServices, privacyMode],
+    [userServices, privacyMode, freshest],
   );
 
   const draftInFlightRef = useRef<Set<string>>(new Set());
@@ -400,7 +414,7 @@ export default function App() {
           state: 'sent-simulated',
           updatedAt: new Date().toISOString(),
         };
-        const sentTicket: Ticket = { ...ticket, status: 'sent-simulated' };
+        const sentTicket: Ticket = { ...freshest(ticket), status: 'sent-simulated' };
         // The whole "send" is these two writes to the user's own partition:
         // no request leaves the app for any mail or messaging service.
         const outcome = await sendSimulated(async () => {
@@ -424,7 +438,7 @@ export default function App() {
         sendInFlightRef.current.delete(ticket.id);
       }
     },
-    [userServices, auth.user, draftsByTicket],
+    [userServices, auth.user, draftsByTicket, freshest],
   );
 
   const handleAddManual = useCallback(
