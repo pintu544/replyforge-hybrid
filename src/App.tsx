@@ -75,6 +75,12 @@ export default function App() {
     if (!auth.user) {
       setTickets([]);
       setSelectedId(null);
+      // Per-user session state must not bleed into the next account that
+      // signs in on this page (T-1.9 QA: account B was shown account A's
+      // triage failure card, including its "was recorded" claim).
+      setTriageStates({});
+      setInboxMessage(null);
+      setInboxError(null);
       return;
     }
     refreshTickets().catch((err: unknown) => {
@@ -88,31 +94,42 @@ export default function App() {
 
   const selected = tickets.find((t) => t.id === selectedId) ?? tickets[0] ?? null;
 
+  const triageInFlightRef = useRef<Set<string>>(new Set());
+
   const handleRunTriage = useCallback(
     async (ticket: Ticket) => {
       if (!userServices) return;
+      // The button's disabled state is a courtesy, not a guard: a second
+      // activation that slips past it must not run a duplicate AI task or
+      // write a duplicate route event (T-1.9 QA).
+      if (triageInFlightRef.current.has(ticket.id)) return;
+      triageInFlightRef.current.add(ticket.id);
       setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'running' } }));
-      const outcome = await runTriage(
-        {
-          adapter: userServices.adapter,
-          writer: userServices.writer,
-          isOnline: () => navigator.onLine,
-        },
-        ticket,
-      );
-      if (outcome.status === 'success') {
-        const updated: Ticket = { ...ticket, triage: outcome.triage, status: 'triaged' };
-        try {
-          await userServices.repo.saveTicket(updated);
-          setTickets((list) => list.map((t) => (t.id === updated.id ? updated : t)));
-        } catch {
-          // The result stays visible even if persistence fails; the route event
-          // has already been written by the triage service.
-          setTickets((list) => list.map((t) => (t.id === updated.id ? updated : t)));
+      try {
+        const outcome = await runTriage(
+          {
+            adapter: userServices.adapter,
+            writer: userServices.writer,
+            isOnline: () => navigator.onLine,
+          },
+          ticket,
+        );
+        if (outcome.status === 'success') {
+          const updated: Ticket = { ...ticket, triage: outcome.triage, status: 'triaged' };
+          try {
+            await userServices.repo.saveTicket(updated);
+            setTickets((list) => list.map((t) => (t.id === updated.id ? updated : t)));
+          } catch {
+            // The result stays visible even if persistence fails; the route event
+            // has already been written by the triage service.
+            setTickets((list) => list.map((t) => (t.id === updated.id ? updated : t)));
+          }
+          setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'done', outcome } }));
+        } else {
+          setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'failed', outcome } }));
         }
-        setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'done', outcome } }));
-      } else {
-        setTriageStates((s) => ({ ...s, [ticket.id]: { kind: 'failed', outcome } }));
+      } finally {
+        triageInFlightRef.current.delete(ticket.id);
       }
     },
     [userServices],
@@ -121,6 +138,12 @@ export default function App() {
   const handleAddManual = useCallback(
     async (subject: string, body: string) => {
       if (!userServices || !auth.user) throw new Error('Sign in first.');
+      // Whitespace-only input passes the form's native `required` check but
+      // trims to nothing; a content-less ticket must not enter the inbox
+      // (T-1.9 QA).
+      if (!subject.trim() || !body.trim()) {
+        throw new Error('Subject and message must not be blank.');
+      }
       const ticket: Ticket = {
         id: `manual-${crypto.randomUUID()}`,
         ownerUid: auth.user.uid,
