@@ -46,6 +46,8 @@ If a requirement is clearly not met (for example 8 GB RAM and a weak GPU, or und
 4. Find **"Prompt API for Gemini Nano"** and set it to **Enabled**.
 5. Click **Relaunch** / restart Chrome when prompted. Both flags must survive the restart — if you re-open the flags page, both should still show your chosen values.
 
+> **Version note (Pintu's own run on his PC, confirmed by Pintu 12 Nov 2026):** on Chrome 155 the older `optimization-guide-on-device-model` flag no longer exists — skip step 1–2 above on recent Chrome builds and enable only the current Prompt API flag from step 3–4. With that single flag set in an isolated Chrome profile on his machine, the model downloaded, answered the test prompt, and availability reported `available`. His desktop and main Chrome profile were left untouched. (The run was performed on Pintu's PC by an assistant on his side and confirmed by Pintu in chat; it was not run on, and cannot be reproduced on, the build VM, whose own hardware cannot run the model.)
+
 ### Step 3 — Check the model's availability state
 
 1. Open any normal website (for example https://example.com).
@@ -180,3 +182,22 @@ PC check for Gemini Nano:
 
 Start now with the requirements check: tell me the first figure to find and exactly where to find it.
 ```
+
+---
+
+## Completed run — Pintu's machine (12 November 2026, confirmed)
+
+| Item | Value |
+|---|---|
+| OS | Ubuntu 24.04.4 LTS (Linux x86_64), a VM |
+| Chrome | 155.0.8059.39 |
+| RAM | 23 GiB |
+| CPU | Intel Xeon @ 2.50 GHz, 4 cores (8 logical CPUs) |
+| GPU dedicated memory | None exposed to the VM — the model runs via the RAM/CPU path (bar: 16 GiB RAM + 4 cores, met) |
+| Free disk | 46 GB on `/` after setup |
+| Availability before setup | `downloadable` |
+| Availability after setup | `available` |
+| Test prompt | Answered ("Hey there! 😊") |
+| Errors | None from Chrome |
+
+Setup used an isolated Chrome profile with only the current Prompt API flag enabled; the desktop and main Chrome profile were untouched. On-device latency on this machine should be measured honestly at demo time — a no-GPU VM is not the fastest Nano host.
