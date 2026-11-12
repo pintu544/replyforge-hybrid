@@ -32,4 +32,4 @@ export const isFirebaseConfigured: boolean =
 export const appCheckDebugToken: string | undefined =
   env.VITE_FIREBASE_APPCHECK_DEBUG_TOKEN || undefined;
 
-export const cloudModelName: string = env.VITE_CLOUD_MODEL || 'gemini-2.5-flash';
+export const cloudModelName: string = env.VITE_CLOUD_MODEL || 'gemini-3.5-flash-lite';
