@@ -106,3 +106,35 @@ Run by Pintu himself, on his own machine and his own account, following spec/RUN
 - `npm test`: 22/22 passed — fixture contract (T-1.3), loader idempotency (T-1.4), route-event shape and no-text rule (T-1.5), availability mapping/controller (T-1.6), triage success/fallback/no-route/forced-error paths (T-1.8).
 - `npm run typecheck`, `npm run lint`: clean. `npm run build`: succeeds (one informational chunk-size warning for the Firebase SDK bundle; code-splitting is a Slice 4 polish item).
 - Impeccable detector over the UI files: zero findings.
+
+
+## Slice 4 finishing steps on the reference machine — 13 November 2026 (Pintu-reported)
+
+- **RF-021 individual escalation — VERIFIED on Pintu's account.** Preview
+  showed only the redacted summary plus ticket metadata, redaction count 5,
+  no remaining patterns; gate state **Minimised** (the on-device triage PII
+  estimate matched the redaction count, so the payload was not held for
+  review on this run). After one authorised confirmation the escalation ran
+  (reason: "Long or complex ticket") and the draft was stored on the ticket
+  for review/edit before the simulated send. Nothing was sent to any
+  customer (sending is simulated by design).
+- **Privacy Mode on the reference machine — PARTIALLY observed.** RF-005
+  triage completed on-device with Privacy Mode on. For RF-021, the
+  escalation confirm button stayed enabled and no refusal was shown before
+  any click; Pintu did not click again (his one authorised confirmation was
+  already spent, and the UI gave no signal that a click would be refused
+  rather than sent). The refusal itself — recorded route event, zero model
+  calls — is verified on the build VM (Slice 1 live verification and the
+  Slice 3 C-1 fix) and recorded in the demo footage, but the pre-click
+  presentation is a genuine UX gap: in `only_on_device` mode the escalation
+  area should state the refusal up front instead of presenting a live-looking
+  confirm. Fix proposed to Pintu 13 Nov; decision pending.
+- **Offline — still unverified on the reference machine.** Chrome's offline
+  emulation reported offline at the browser level while the app still showed
+  Online, so RF-006 was not run. Offline remains published as unmeasured
+  (scorecard 0 of 0 attempts); the OS-level network disconnect is the only
+  untried method.
+- **Account state after the session:** 33 stored route events (30 evaluation
+  + RF-005 triage + RF-021 triage + RF-021 escalation). The original
+  evaluation figures are unchanged: 28/30, 30 on-device, 0 in cloud, 0
+  failed. Privacy Mode left OFF. No screen recording was captured.
