@@ -3,7 +3,7 @@
 > The full 2:45 voiceover + shot script for the submission video
 > (hard cap 3:00; only the first 3 minutes are evaluated). Structure
 > follows the win-research demo plan (research report §6.4): problem →
-> on-device proof with the network off → PII / Privacy-Mode moment →
+> on-device proof → PII / Privacy-Mode moment →
 > cloud escalation from the redacted summary → measured scorecard +
 > close.
 >
@@ -37,8 +37,11 @@
 >
 > Voiceover pace: ≈150 words/minute; total ≈410 words ≈ 2:45.
 > The `[FIGURES]` values are final (filled 13 Nov from Pintu's
-> session). The one open capture is Beat 2's network-off footage —
-> see its Footage cell before recording Beat 2's VO.
+> session). **Final cut assembled 13 Nov 2026** (2:35.5;
+> `video-final/replyforge-hybrid-demo.mp4`, timings and sources in
+> `video-final/MANIFEST.md`). Beat 2 uses the stills fallback with
+> reworded VO — the network-off capture never materialised — see
+> Beat 2 below.
 
 ---
 
@@ -50,13 +53,13 @@
 | **Footage** | `[CARD]` title card: "ReplyForge Hybrid — support replies that keep customer data on the device." · `[RECORD NOW — hosted build]` `video-scratch/beat1-inbox-load.webm` (tail of the recording: inbox rendered, status panel visible). |
 | **Voiceover** | "If you run support for a small product, this is your morning: a wall of customer e-mail, and every reply starts from a blank box. Sending all of it to a cloud model is fast — but it means your customers' personal data leaves with every message. ReplyForge is built for that operator. It redacts personal data where it lives — on the device — and the cloud only ever drafts from the redacted summary." |
 
-## Beat 2 — On-device proof, network off · 0:20–0:55
+## Beat 2 — On-device proof (stills fallback, as recorded) · 0:20–0:55
 
 | | |
 | --- | --- |
-| **On-screen action** | Routing diagram full-screen (~3 s at 0:25). Cut to Pintu's machine: hybrid status panel reports the on-device model available; Wi-Fi switched **off on camera**; open RF-001 → Run triage → result card completes with the route chip reading **On device** and its latency; zoom the chip. Then RF-006 offline: amber "Completed locally — awaiting sync" card; Wi-Fi back on; the card promotes to a proven On device success. |
-| **Footage** | `[CARD]` routing diagram: `Ticket → [On device: classify · redact · draft if simple] → simple? → reply / complex, angry, long, low-confidence? → [Cloud: draft from redacted summary] → human approves`. · `[NEEDS PINTU SESSION — his machine/screenshots]` live capture of RUNBOOK Part B steps 1–2 and 4 (status panel, RF-001 triage card with On device chip — his runbook screenshot is the stills fallback — and the offline awaiting-sync sequence). **Nothing in this beat can be recorded on the build VM.** Status 13 Nov: the session produced the scorecard + RF-003 stills but NOT the network-off capture (tab-level offline did not trigger the app; OS-level retry still open). If the capture never materialises, Beat 2 falls back to the stills (scorecard, evaluation panel, RF-003 redaction) and the VO's network-off lines MUST be reworded to match what is shown — never narrate an unfilmed moment. |
-| **Voiceover** | "Watch the route, not the promise. This machine has Gemini Nano, so triage runs on the device. And now the network is off — completely. The ticket is still classified, still answered, and the chip on the card is the proof: it shows the route that actually ran, reported by Firebase AI Logic itself. Work finished offline waits, honestly labelled, and becomes a proven on-device success when the connection returns. On this machine the median on-device triage took 9,662 milliseconds across thirty tickets — a CPU-only machine, no GPU — and no ticket text left it." |
+| **On-screen action** | Routing diagram card full-screen. Cut to the app's own Scorecard panel from Pintu's session (still, slow push-in): 100% of 30 completed tasks on-device, median latency 9,662 ms (n = 30), 28 of 30 routes correct, 27 redactions / 0 surviving. Then the RF-003 redaction still (e-mail masked, count 1) on a captioned canvas. No network-off moment is shown or narrated — none was captured. |
+| **Footage** | `[CARD]` routing diagram: `Ticket → [On device: classify · redact · draft if simple] → simple? → reply / complex, angry, long, low-confidence? → [Cloud: draft from redacted summary] → human approves`. · `[STILLS — Pintu's session]` `spec/evidence/ondevice-scorecard.png` and `spec/evidence/ondevice-rf003-redaction.png`, presented on themed canvases with captions. **Changed 13 Nov 2026 for the final cut:** the planned network-off live capture (Wi-Fi off on camera → On device chip → RF-006 awaiting-sync → promotion) never materialised — the session produced the scorecard + RF-003 stills only (tab-level offline did not trigger the app; the OS-level retry is still open) — so the stills fallback was used and the VO reworded to match exactly what is shown, per the honesty rule below. If the capture is ever recorded, this beat can be re-cut with the original VO. |
+| **Voiceover** | "Watch the route, not the promise. This machine has Gemini Nano, so triage runs on the device — and the proof is the route each result reports, from Firebase AI Logic itself. On this machine, the full thirty-ticket evaluation ran on the device: thirty of thirty triages, at a median of 9,662 milliseconds, on a CPU-only machine with no GPU. The scorecard on screen is the app's own record of that run. Work finished offline waits, honestly labelled 'awaiting sync', until it can prove its route." |
 
 ## Beat 3 — PII / Privacy-Mode moment · 0:55–1:30
 
@@ -107,10 +110,12 @@
   twice.
 - **Still fallbacks:** if any `[NEEDS PINTU SESSION]` clip is
   missing, use Pintu's runbook screenshots (On-device triage card,
-  amber awaiting-sync card, scorecard panel) as held stills under
-  the same VO — the script's wording does not change.
-- **VO status (13 Nov):** all `[FIGURES]` values are filled from
-  Pintu's session and the scorecard card can be generated from the
-  table above. The only open item before recording is Beat 2's
-  footage decision (live network-off capture vs the stills
-  fallback with reworded VO) — see Beat 2's Footage cell.
+  amber awaiting-sync card, scorecard panel) as held stills.
+  Exception, applied in the final cut: where a VO line narrates a
+  specific filmed action (Beat 2's network-off sequence), the VO
+  MUST be reworded to match the stills actually shown — never
+  narrate an unfilmed moment.
+- **VO status (13 Nov):** recorded for the final cut (ElevenLabs,
+  Sarah; details in `video-final/MANIFEST.md`). All `[FIGURES]`
+  values are filled from Pintu's session; Beat 2's VO is the
+  reworded stills-fallback text in its cell above.
