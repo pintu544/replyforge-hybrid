@@ -233,6 +233,13 @@ textarea { resize: vertical; }
 .privacy-toggle { display: flex; align-items: center; gap: 9px; font-size: 14px; font-weight: 500; color: var(--ink); margin: 0; cursor: pointer; }
 .privacy-toggle input { width: 17px; height: 17px; accent-color: var(--accent); margin: 0; }
 
+/* Escalation Privacy Mode notice — the refusal is stated up front, before
+   the action, not only after it (13 Nov fix for the gap Pintu found). */
+.privacy-notice { border: 1px solid rgba(138, 109, 26, 0.25); background: var(--warn-tint); border-radius: 11px; padding: 12px 16px; margin: 0 0 14px; font-size: 13.5px; color: var(--ink-2); max-width: 68ch; }
+.privacy-notice p { margin: 0 0 4px; }
+.privacy-notice p:last-child { margin-bottom: 0; }
+.privacy-notice-title { font-weight: 600; color: var(--ink); }
+
 /* Redaction */
 .redaction-count { font-size: 14px; margin: 0 0 12px; }
 .entity-table { border-collapse: collapse; width: 100%; font-size: 13.5px; margin-bottom: 14px; }

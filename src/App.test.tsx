@@ -412,3 +412,87 @@ describe('App Slice 3 invariants (T-3.7 QA)', () => {
     });
   });
 });
+
+describe('App Privacy Mode escalation presentation (13 Nov fix)', () => {
+  // Pintu's live finding on the reference machine: with Privacy Mode on,
+  // the escalation area presented a live-looking "Confirm payload and
+  // escalate" button and no refusal until after the click, so he could
+  // not tell the click would be refused rather than sent. The engine was
+  // already correct (refusal, zero cloud calls); the fix states the
+  // refusal up front and relabels the action. These tests pin the
+  // presentation and that the relabelled action is the same refused path.
+
+  async function openEscalation() {
+    h.structuredImpl = () =>
+      Promise.resolve({
+        text: JSON.stringify({
+          category: 'delivery',
+          urgency: 'high',
+          sentiment: 'angry',
+          confidence: 0.92,
+          issueCount: 1,
+          personalDataCount: 0,
+        }),
+        inferenceSource: 'in_cloud' as const,
+      });
+    await signInAs(USER_A);
+    click(buttonByText('Run triage'));
+    await waitFor(() => pageText().includes('Run triage again'), 'triage completed');
+    click(buttonByText('Redact personal data'));
+    await waitFor(() => pageText().includes('Redaction count:'), 'redaction shown');
+  }
+
+  function togglePrivacyMode() {
+    const toggle = container.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (!toggle) throw new Error('Privacy Mode toggle not found');
+    click(toggle);
+  }
+
+  it('hybrid mode renders the confirm action and no refusal notice (unchanged)', async () => {
+    await openEscalation();
+    expect(pageText()).toContain('Confirm payload and escalate');
+    expect(pageText()).not.toContain('Record Privacy Mode refusal');
+    expect(pageText()).not.toContain('this escalation will not run');
+  });
+
+  it('Privacy Mode states the refusal up front and relabels the action', async () => {
+    await openEscalation();
+    togglePrivacyMode();
+    await flush();
+    // The notice is visible BEFORE any click on the escalation action.
+    expect(pageText()).toContain('Privacy Mode is on — this escalation will not run');
+    expect(pageText()).toContain('so it cannot run under Privacy Mode');
+    expect(pageText()).toContain(
+      'Recording the refusal stores it as a route event. No model call is made.',
+    );
+    expect(pageText()).toContain('Record Privacy Mode refusal');
+    expect(pageText()).not.toContain('Confirm payload and escalate');
+  });
+
+  it('recording the refusal stores the blocked route event with zero cloud calls', async () => {
+    h.textImpl = () =>
+      Promise.resolve({ text: 'MUST NEVER BE GENERATED', inferenceSource: 'in_cloud' as const });
+    await openEscalation();
+    togglePrivacyMode();
+    await flush();
+
+    click(buttonByText('Record Privacy Mode refusal'));
+    await waitFor(() => pageText().includes('Refused — Privacy Mode'), 'escalation refusal card');
+    expect(pageText()).toContain('cannot run under Privacy Mode');
+    expect(pageText()).toContain('The refusal was recorded as a route event.');
+    // The escalation's cloud handler was never invoked.
+    expect(h.textCalls).toBe(0);
+
+    let events: RouteEvent[] = [];
+    for (const repo of h.repos) {
+      events = [...events, ...(await repo.listRouteEvents(USER_A.uid))];
+    }
+    const refusal = events.find((e) => e.taskType === 'escalation-draft');
+    expect(refusal).toMatchObject({
+      ticketId: expect.any(String),
+      requestedMode: 'only_on_device',
+      actualSource: null,
+      outcome: 'blocked',
+    });
+  });
+});

@@ -138,3 +138,31 @@ Run by Pintu himself, on his own machine and his own account, following spec/RUN
   + RF-005 triage + RF-021 triage + RF-021 escalation). The original
   evaluation figures are unchanged: 28/30, 30 on-device, 0 in cloud, 0
   failed. Privacy Mode left OFF. No screen recording was captured.
+
+
+## Privacy Mode escalation UI fix — 13 November 2026
+
+- **Fix shipped (Pintu approved 13 Nov).** The pre-click gap recorded above
+  is closed: in `only_on_device` mode the escalation area now shows an
+  up-front notice ("Privacy Mode is on — this escalation will not run", the
+  `ESCALATION_PRIVACY_REASON` text, and "Recording the refusal stores it as
+  a route event. No model call is made.") and the action reads **Record
+  Privacy Mode refusal**, invoking the same refused path (presentation
+  only; engine, payload builder and executors untouched). In hybrid mode
+  the area renders exactly as before. UI: `TicketWorkspace.tsx`; styles:
+  `.privacy-notice` in `styles.css`. Coverage: 3 new component tests in
+  `App.test.tsx` (hybrid unchanged; notice + label before any click;
+  refusal click stores the blocked event with zero cloud calls). Suite:
+  117/117.
+- **Live smoke on the hosted build (QA account A, build-VM browser):**
+  RF-021 triage completed **In cloud · 1766 ms**; hybrid area showed the
+  confirm action and no refusal action; Privacy Mode ON → notice and
+  **Record Privacy Mode refusal** visible BEFORE the click (screenshot
+  `spec/evidence/privacy-escalation-upfront-notice.png`); click → **Refused
+  — Privacy Mode** card (screenshot
+  `spec/evidence/privacy-escalation-refusal-after-fix.png`); Firestore REST
+  confirms a fresh refused route event for this run: ticketId RF-021,
+  taskType `escalation-draft`, requestedMode `only_on_device`,
+  actualSource null, outcome `blocked`, trigger `length-complexity`,
+  createdAt 2026-11-13T02:58:12.436Z (account refusal-event count 1 → 2).
+  Privacy Mode left OFF.

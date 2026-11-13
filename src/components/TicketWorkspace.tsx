@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { Draft, PayloadGateStatus, RedactedArtefact, Ticket, TriageResult } from '../lib/types';
 import type { EscalationPreview } from '../services/payload';
-import { triggerLabel, type EscalationResult } from '../services/escalation';
+import { ESCALATION_PRIVACY_REASON, triggerLabel, type EscalationResult } from '../services/escalation';
 import type { RoutingDecision } from '../services/routing';
 import type { TriageOutcome } from '../services/triage';
 import { RouteChip } from './TicketList';
@@ -366,14 +366,23 @@ export function TicketWorkspace({
             <p className="triage-note">
               The escalation draft is written by the cloud model from the payload previewed
               above — exactly that object, never the raw ticket.
-              {preview.gate.status === 'held-for-review' &&
+              {!privacyMode &&
+                preview.gate.status === 'held-for-review' &&
                 ' The payload is held for review (see the gate note above): the confirmation below is the explicit review this state requires.'}
-              {preview.gate.status === 'minimised' &&
+              {!privacyMode &&
+                preview.gate.status === 'minimised' &&
                 ' Confirming sends exactly the payload above to the cloud model for drafting.'}
-              {privacyMode &&
-                ' Privacy Mode is on: an escalation runs in the cloud by definition, so escalating will be refused and the refusal recorded.'}
             </p>
-            {preview.gate.status === 'blocked' ? (
+            {privacyMode && (
+              <div className="privacy-notice" role="status">
+                <p className="privacy-notice-title">
+                  Privacy Mode is on — this escalation will not run
+                </p>
+                <p>{ESCALATION_PRIVACY_REASON}</p>
+                <p>Recording the refusal stores it as a route event. No model call is made.</p>
+              </div>
+            )}
+            {preview.gate.status === 'blocked' && !privacyMode ? (
               <button type="button" className="button button--primary" disabled>
                 Escalation blocked by the payload gate
               </button>
@@ -385,12 +394,16 @@ export function TicketWorkspace({
                 onClick={() => onEscalate(ticket, preview, true)}
               >
                 {escalationUi.kind === 'running'
-                  ? 'Escalating…'
+                  ? privacyMode
+                    ? 'Recording refusal…'
+                    : 'Escalating…'
                   : escalationUi.kind === 'awaiting-sync'
                     ? 'Awaiting sync…'
-                    : preview.gate.status === 'held-for-review'
-                      ? 'I reviewed the payload — confirm and escalate'
-                      : 'Confirm payload and escalate'}
+                    : privacyMode
+                      ? 'Record Privacy Mode refusal'
+                      : preview.gate.status === 'held-for-review'
+                        ? 'I reviewed the payload — confirm and escalate'
+                        : 'Confirm payload and escalate'}
               </button>
             )}
 
