@@ -2,10 +2,9 @@
 
 *Draft for the Devpost submission (feeds T-4.4). Every figure below is
 measured and traces to a stored route event or an evaluation run in the
-app — none is typed in from memory. Figures marked [REFRESH] must be
-re-measured in the Slice 4 on-device session on the operator's own
-machine (the only machine available to this project with Gemini Nano)
-before the submission is filed.*
+app — none is typed in from memory. The on-device figures were measured
+in the Slice 4 session on the operator's own machine (the only machine
+available to this project with Gemini Nano) on 13 November 2026.*
 
 ## Who it is for
 
@@ -29,7 +28,7 @@ set), with all AI inference through Firebase AI Logic
 
 | Figure | Measured value | Source |
 | --- | --- | --- |
-| Routing accuracy | 28 of 30 tickets (93.3%) | Evaluation run, 13 Nov 2026 |
+| Routing accuracy | 27–28 of 30 tickets (90–93%), band across four live runs | Evaluation runs, 13 Nov 2026 |
 | Labelled personal-data items redacted | 27 of 27 | Evaluation run |
 | Labelled patterns surviving into a cloud payload | 0 | Evaluation run + payload gate |
 | Triage routes in that run (actual) | 0 on-device · 30 in cloud · 0 failed | `inferenceSource` per call |
@@ -42,24 +41,49 @@ set), with all AI inference through Firebase AI Logic
 How to read the two honest zeroes: this machine cannot run Gemini
 Nano, so every task fell back to the cloud — visibly, with the actual
 route on every result card — and Privacy Mode attempts were refused
-rather than sent anywhere. The on-device figures below are the ones
-the Slice 4 session exists to measure:
+rather than sent anywhere. The same evaluation was then run on a
+machine that can run Nano:
 
-- [REFRESH] Fully handled on-device (share of completed tasks) — after
-  the on-device session on the operator's machine.
-- [REFRESH] Median latency, on-device — same session.
-- [REFRESH] Offline successes out of attempts — same session, with the
-  network off.
+## The on-device session (13 November 2026)
+
+Measured on the reference machine — Ubuntu 24.04.4 LTS · Chrome
+155.0.8059.39 · 23 GiB RAM · Intel Xeon @ 2.50 GHz (4 cores /
+8 threads) · **no GPU, so Gemini Nano ran on the CPU path** — in a
+full evaluation run on the operator's own account. The run is stored
+in the app as that account's EvaluationRun; its figures are:
+
+| Figure | Measured value | Source |
+| --- | --- | --- |
+| Routing accuracy in that run | 28 of 30 tickets (93.3%) | Evaluation run |
+| Triage routes in that run (actual) | 30 on-device · 0 in cloud · 0 failed | `inferenceSource` per call |
+| Labelled personal-data items redacted | 27 of 27 | Evaluation run |
+| Labelled patterns surviving into a cloud payload | 0 | Evaluation run + payload gate |
+| Median latency, on-device | 9,662 ms (n = 30) | Evaluation run |
+| Offline successes | Not measured on this machine (0 attempts) | — |
+
+Two readings matter. First, the on-device latency is a CPU-path
+number: roughly nine seconds a ticket on a shared virtual CPU with no
+GPU is the honest cost of keeping the text on the machine, and it is
+stated as measured, not rounded into a claim. Second, the offline
+figure is an absence, not a success: no offline attempt was recorded
+on the reference machine (the tab-level offline switch did not take
+the app offline), so no offline figure is claimed from this session.
+The awaiting-sync behaviour an offline attempt would exercise was
+verified live in Slice 1–2 QA on the cloud path.
 
 ## What the disagreements were
 
 Accuracy is the routing engine's agreement with the fixture labels,
-given the triage the live model actually produced. The two
-disagreements in the 28/30 run (RF-015, RF-017) were model variance:
-the model counted two issues in tickets labelled as single-issue, so
-the engine escalated them. They are listed, with their reasons, in the
-app's evaluation panel — the scorecard shows its workings, not just
-its headline.
+given the triage the live model actually produced, and it is reported
+as the band across all four measured runs — 27–28 of 30 (90–93%) —
+never as the best single run. The disagreements were model variance,
+not engine instability: in the cloud runs the model counted two
+issues in tickets labelled as single-issue (RF-015, RF-017), so the
+engine escalated them, and in one run it reported confidence at or
+above the threshold for a ticket labelled low-confidence (RF-022).
+The on-device run's two disagreements were RF-019 and RF-022. They
+are listed, with their reasons, in the app's evaluation panel — the
+scorecard shows its workings, not just its headline.
 
 A first evaluation run scored 17 of 30 because the free tier's
 15-requests-per-minute limit quota-failed twelve triages. That run is

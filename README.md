@@ -140,20 +140,27 @@ Measured against a labelled 30-ticket fixture (fixture version 1) of
 synthetic tickets, with every figure computed from stored route
 events or an evaluation run — no figure is typed in by hand.
 
-- **Routing accuracy: 27–28 of 30 tickets (90–93%)** across three
-  live evaluation runs (13 November 2026). We report the band, not
-  the best run: the disagreements (RF-015, RF-017, and RF-022 in one
-  run) are live-model variance in issue counts and confidence, listed
-  with their reasons in the app's evaluation panel.
+- **Routing accuracy: 27–28 of 30 tickets (90–93%)** across four
+  live evaluation runs — three on the cloud path and one fully
+  on-device (13 November 2026). We report the band, not the best run:
+  the disagreements (RF-015 and RF-017 in the cloud runs; RF-019 and
+  RF-022 in the on-device run) are live-model variance in issue
+  counts and confidence, listed with their reasons in the app's
+  evaluation panel.
 - **Labelled personal-data items redacted: 27 of 27**; labelled
   patterns surviving into a cloud payload: **0**.
 - **Median latency, in cloud: 1,048 ms** (n = 75 completed tasks,
   headless Chromium on a machine with no on-device model).
-- [REFRESH after the on-device session] Fully handled on-device,
-  median on-device latency, and offline successes — to be measured on
-  the operator's machine (Ubuntu, Chrome 155, Gemini Nano available),
-  route-proven via `inferenceSource`, with sample size, device, and
-  Chrome version stated alongside.
+- **On-device run (reference machine): 30 of 30 triages on-device**,
+  median on-device latency **9,662 ms** (n = 30), route-proven via
+  `inferenceSource`. Machine: Ubuntu 24.04.4 LTS, Chrome
+  155.0.8059.39, 23 GiB RAM, Intel Xeon 4 cores / 8 threads, no
+  GPU — Gemini Nano on the CPU path, which is what the latency
+  reflects.
+- **Offline successes: not measured on the reference machine**
+  (0 attempts recorded); the awaiting-sync behaviour an offline
+  attempt would exercise was verified in Slice 1–2 QA on the cloud
+  path.
 
 ## Run it locally
 
