@@ -3,7 +3,7 @@
 **File:** `replyforge-hybrid-demo.mp4`
 **Assembled:** 13 November 2026 · **Not uploaded or published.**
 **Runtime:** 155.5 s (2:35.5) — target 2:45, hard cap 3:00
-**Format:** 1280×720, 30 fps, H.264 (CRF 20) + AAC 160 kbps · 16.4 MB
+**Format:** 1280×720, 30 fps, H.264 (CRF 20) + AAC 160 kbps · 16.6 MB
 **Script:** `spec/DEMO-SCRIPT.md` (Beat 2 adapted to the stills
 fallback — see its Footage cell; all other beats verbatim).
 
@@ -20,9 +20,20 @@ fallback — see its Footage cell; all other beats verbatim).
 `spec/evidence/hosted-smoke.png` was available but not used — no
 beat in the script calls for it.
 
-The end card shows the live demo URL (replyforge-hybrid.web.app).
-It does not print a repository URL: the public repo has not been
-created yet, and the card will be regenerated when it exists.
+**Correction (13 November 2026):** the end card originally showed
+only the live demo URL — it was generated before the public repo
+existed. The repo now exists
+(https://github.com/pintu544/replyforge-hybrid), so the end card
+alone was regenerated with a second line, "Source:
+github.com/pintu544/replyforge-hybrid", re-rendered as segment
+`s5c` with the original pipeline (`/tmp/rf-build/build.py`
+parameters), and spliced back into Beat 5. Everything else is
+unchanged: frame-hash comparison confirms the video up to the
+splice (142.5 s) and the full audio track are identical to the
+original cut, and the beat 1–4 segment files were not touched.
+Duration is unchanged at 155.53 s; the file is now 16,559,161
+bytes. The new end card and the splice point were verified from
+extracted frames (see Verification).
 
 ## Voiceover as recorded
 
@@ -48,7 +59,16 @@ DEMO-SCRIPT + session scorecard still), end card.
 ## Verification (13 Nov 2026)
 
 - `ffprobe`: duration 155.53 s; video H.264 1280×720 @ 30 fps;
-  audio AAC; size 16,370,662 bytes.
+  audio AAC; size 16,559,161 bytes (after the 13 Nov end-card
+  correction; originally 16,370,662 bytes).
+- End-card correction re-verification (13 Nov 2026): frames
+  extracted at 142.40 s (In-cloud insert, intact up to the
+  splice), 142.80 s and 150.00 s (new end card) — the cut at
+  ≈142.6 s is clean, and both end-card URLs are fully legible at
+  full resolution: "Live demo: replyforge-hybrid.web.app" and
+  "Source: github.com/pintu544/replyforge-hybrid". Frame-hash
+  (framemd5) comparison against the original cut: identical for
+  video 0–142.5 s and for the full audio track.
 - One frame extracted and viewed from every beat (14 frames):
   title, inbox, routing card, session scorecard still, RF-003
   still (both beats), payload preview, refusal card, escalation
