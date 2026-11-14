@@ -145,12 +145,19 @@
 - [ ] **T-4.5 — Script and produce the demo video (target 2 minutes 45 seconds)**
       Done means: a public YouTube video with English narration or subtitles runs no longer than three minutes and hits all five beats in order: (1) problem, audience, and claim, 0:00–0:20; (2) network off, on-device triage and draft with route chip and latency, 0:20–0:55; (3) on-device redaction and Privacy Mode refusal, 0:55–1:30; (4) cloud escalation from the redacted summary with reason label, 1:30–2:15; (5) measured scorecard, hosted URL, repository, and the honest no-Nano fallback close, 2:15–2:45. No screen shows a route, figure, or capability the live build cannot reproduce.
       Unblocks: T-4.6.
-- [ ] **T-4.6 — Run the Stage One submission checklist**
+- [x] **T-4.6 — Run the Stage One submission checklist**
       Done means: a dated checklist verifies platform selected; description complete; public repository and visible licence; Firebase AI Logic actually called in code; hosted demonstration reachable; video public and within the limit; English throughout; project free of charge; no secrets or personal data in the repository, video, or testing instructions; and the quota/bonus position rechecked on the live Devpost page in case unpublished items have appeared.
       Unblocks: T-4.7.
-- [ ] **T-4.7 — Pintu pre-submission review**
+- [x] **T-4.7 — Pintu pre-submission review**
       Done means: Pintu reviews the projected score against all four equally weighted criteria, the clarity of the routing diagram, video, scorecard, and description, and explicitly approves submission or sends the pack back for named changes. No submission is filed before this approval.
       Unblocks: T-4.8.
-- [ ] **T-4.8 — Submit and verify**
+- [x] **T-4.8 — Submit and verify**
       Done means: the verified submission is filed by **29 November 2026**; the confirmation state, final project URL, repository URL, hosted URL, and video URL are recorded; one final click-through proves every submitted link opens the intended public asset. The 30 November 2:00 PM PT deadline remains unused buffer unless a verified filing failure requires it.
       Unblocks: nothing; entry complete.
+
+## Slice 4 close-out (2026-11-14)
+
+- T-4.6 checklist verified 14 Nov: platform Web; description complete; public repo with Apache-2.0 in About; AI Logic imported and called at runtime; hosted demo reachable; video public (2:35); English throughout; free of charge; no secrets in tracked files.
+- Production App Check landed 14 Nov: Fraud Defense (reCAPTCHA Enterprise) provider registered in the console (Firebase deprecated the classic v3 provider flow); production builds initialise ReCaptchaEnterpriseProvider with the public site key (commit 910cc26); verified end-to-end on localhost with a real cloud escalation ("In cloud", zero App Check errors) and live by bundle hash. Debug-token build remains the fallback path in code.
+- T-4.7: Pintu reviewed the projected scores and approved submission 14 Nov 18:30 IST.
+- T-4.8: SUBMITTED 14 Nov 2026 ~18:33 IST — https://devpost.com/software/replyforge-hybrid (submission 1298580). Devpost banner "Project submitted!"; project remains editable until the 30 Nov deadline. Judging 10–16 Dec; winners ~21 Dec.
