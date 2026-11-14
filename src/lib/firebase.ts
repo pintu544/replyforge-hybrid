@@ -1,9 +1,9 @@
 import { initializeApp, type FirebaseApp } from 'firebase/app';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getFirestore, type Firestore } from 'firebase/firestore';
-import { initializeAppCheck, CustomProvider, type AppCheck } from 'firebase/app-check';
+import { initializeAppCheck, CustomProvider, ReCaptchaEnterpriseProvider, type AppCheck } from 'firebase/app-check';
 import { getAI, GoogleAIBackend, type AI } from 'firebase/ai';
-import { firebaseConfig, isFirebaseConfigured, appCheckDebugToken, appCheckDebugBuild } from './env';
+import { firebaseConfig, isFirebaseConfigured, appCheckDebugToken, appCheckDebugBuild, recaptchaSiteKey } from './env';
 
 export interface FirebaseServices {
   app: FirebaseApp;
@@ -31,14 +31,21 @@ export function getFirebaseServices(): FirebaseServices | null {
   const db = getFirestore(app);
 
   // App Check (DESIGN.md). AI Logic enforcement is "Basic – Enforced" in the
-  // console and the web app is not yet registered with an attestation
-  // provider, so local development uses the SDK debug-token path: setting
-  // FIREBASE_APPCHECK_DEBUG_TOKEN before initialise makes the SDK print a
-  // debug token to the console and exchange it for a real App Check token.
-  // The token must then be registered in the console (App Check → Apps →
-  // Manage debug tokens) before AI Logic calls succeed. A production
-  // reCAPTCHA v3 / Fraud Defense registration replaces this in a later slice.
+  // console. Production builds initialise the registered Fraud Defense
+  // (reCAPTCHA Enterprise) provider with the public site key. Local
+  // development and the explicitly flagged debug build use the SDK
+  // debug-token path instead: setting FIREBASE_APPCHECK_DEBUG_TOKEN before
+  // initialise makes the SDK print a debug token to the console and
+  // exchange it for a real App Check token; the token must be registered
+  // in the console (App Check → Apps → Manage debug tokens) before AI
+  // Logic calls succeed.
   let appCheck: AppCheck | undefined;
+  if (!import.meta.env.DEV && !appCheckDebugBuild && recaptchaSiteKey) {
+    appCheck = initializeAppCheck(app, {
+      provider: new ReCaptchaEnterpriseProvider(recaptchaSiteKey),
+      isTokenAutoRefreshEnabled: true,
+    });
+  }
   if (import.meta.env.DEV || appCheckDebugBuild) {
     const self_ = globalThis as unknown as { FIREBASE_APPCHECK_DEBUG_TOKEN?: string | boolean };
     self_.FIREBASE_APPCHECK_DEBUG_TOKEN = appCheckDebugToken ?? true;

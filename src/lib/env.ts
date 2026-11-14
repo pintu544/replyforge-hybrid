@@ -41,4 +41,15 @@ export const appCheckDebugToken: string | undefined =
  */
 export const appCheckDebugBuild: boolean = env.VITE_APPCHECK_DEBUG_BUILD === 'true';
 
+/**
+ * Public reCAPTCHA site key for the production App Check provider
+ * (Fraud Defense / reCAPTCHA Enterprise, registered in the Firebase
+ * console 2026-11-14). A site key is a public identifier embedded in the
+ * client bundle by design — it is not a secret. Production builds use it
+ * to initialise App Check; the debug-token build above remains available
+ * as a fallback.
+ */
+export const recaptchaSiteKey: string | undefined =
+  env.VITE_RECAPTCHA_SITE_KEY || undefined;
+
 export const cloudModelName: string = env.VITE_CLOUD_MODEL || 'gemini-3.5-flash-lite';
